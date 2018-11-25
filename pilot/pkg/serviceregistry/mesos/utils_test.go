@@ -25,9 +25,9 @@ const (
 
 func TestDNSClient(t *testing.T) {
 	cli := newDNSClient("http://localhost:62080/v1/records", timeout)
-	err, records := cli.getAllRecords()
+	records, err := cli.getAllRecords()
 	if err != nil {
-		t.Error("couldn't get dns records %v", err)
+		t.Errorf("couldn't get dns records %v", err)
 	}
 	t.Log(records)
 }

@@ -22,6 +22,7 @@ import (
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/log"
 	"sync"
+	"errors"
 )
 
 type MesosCall struct {
@@ -41,33 +42,28 @@ type Controller struct {
 	sync.RWMutex
 	// servicesMap stores hostname ==> service, it is used to reduce convertService calls.
 	servicesMap map[model.Hostname]*model.Service
+
+	// dnsClient used to list all dns records
+	dnsClient *dnsClient
 }
 
 // NewController creates a new Consul controller
-func NewController(addr string, interval time.Duration) (*Controller, error) {
-	conf := api.DefaultConfig()
-	conf.Address = addr
-
-	client, err := api.NewClient(conf)
+func NewController(mesosDNSAddr string, timeout time.Duration) (*Controller, error) {
 	return &Controller{
-
-	}, err
+		dnsClient: newDNSClient(mesosDNSAddr, timeout),
+	}, nil
 }
 
 // Services list declarations of all services in the system
 func (c *Controller) Services() ([]*model.Service, error) {
-	data, err := c.getServices()
+	records, err := c.dnsClient.getAllRecords()
 	if err != nil {
 		return nil, err
 	}
 
-	services := make([]*model.Service, 0, len(data))
-	for name := range data {
-		endpoints, err := c.getCatalogService(name, nil)
-		if err != nil {
-			return nil, err
-		}
-		services = append(services, convertService(endpoints))
+	services := make([]*model.Service, len(records))
+	for i := range records {
+		services[i] = convertServices(&records[i])
 	}
 
 	return services, nil
@@ -75,39 +71,14 @@ func (c *Controller) Services() ([]*model.Service, error) {
 
 // GetService retrieves a service by host name if it exists
 func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
-	// Get actual service by name
-	name, err := parseHostname(hostname)
+	records, err := c.dnsClient.getAllRecords()
 	if err != nil {
-		log.Infof("parseHostname(%s) => error %v", hostname, err)
 		return nil, err
 	}
-
-	endpoints, err := c.getCatalogService(name, nil)
-	if len(endpoints) == 0 || err != nil {
-		return nil, err
+	if len(records) == 0 {
+		return nil, errors.New("No DNS records found.")
 	}
-
-	return convertService(endpoints), nil
-}
-
-func (c *Controller) getServices() (map[string][]string, error) {
-	data, _, err := c.client.Catalog().Services(nil)
-	if err != nil {
-		log.Warnf("Could not retrieve services from consul: %v", err)
-		return nil, err
-	}
-
-	return data, nil
-}
-
-func (c *Controller) getCatalogService(name string, q *api.QueryOptions) ([]*api.CatalogService, error) {
-	endpoints, _, err := c.client.Catalog().Service(name, "", q)
-	if err != nil {
-		log.Warnf("Could not retrieve service catalogue from consul: %v", err)
-		return nil, err
-	}
-
-	return endpoints, nil
+	return convertServices(&records[0]), nil
 }
 
 // ManagementPorts retrieves set of health check ports by instance IP.
