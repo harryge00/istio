@@ -123,6 +123,10 @@ func init() {
 		"URL for the Consul server")
 	discoveryCmd.PersistentFlags().DurationVar(&serverArgs.Service.Consul.Interval, "consulserverInterval", 2*time.Second,
 		"Interval (in seconds) for polling the Consul service registry")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.ServerURL, "mesosdnsURL", "",
+		"URL for the Mesos DNS server")
+	discoveryCmd.PersistentFlags().DurationVar(&serverArgs.Service.Mesos.Timeout, "mesosTimeout", 2*time.Second,
+		"Timeout (in seconds) for querying the Mesos dns")
 
 	// using address, so it can be configured as localhost:.. (possibly UDS in future)
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.DiscoveryOptions.HTTPAddr, "httpAddr", ":8080",
