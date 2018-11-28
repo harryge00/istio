@@ -16,11 +16,15 @@ package mesos
 
 import (
 	"time"
+	"context"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/log"
 	"sync"
-	"errors"
+	"github.com/mesos/go-proto/mesos/v1/master"
+
+	"github.com/miroswan/mesops/pkg/v1"
+
 )
 
 type MesosCall struct {
@@ -41,44 +45,34 @@ type Controller struct {
 	// servicesMap stores hostname ==> service, it is used to reduce convertService calls.
 	servicesMap map[model.Hostname]*model.Service
 
-	// dnsClient used to list all dns records
-	dnsClient *dnsClient
+	client *v1.Master
 }
 
 // NewController creates a new Consul controller
-func NewController(mesosDNSAddr string, timeout time.Duration) (*Controller, error) {
-	log.Infof("mesosDNSAddr: %v, timeout: %v", mesosDNSAddr, timeout)
+func NewController(serverURL string, timeout time.Duration) (*Controller, error) {
+	log.Infof("serverURL: %v, timeout: %v", serverURL, timeout)
+
+	client, err := v1.NewMasterBuilder(serverURL).Build()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Controller{
-		dnsClient: newDNSClient(mesosDNSAddr, timeout),
+		client: client,
 	}, nil
 }
 
 // Services list declarations of all services in the system
 func (c *Controller) Services() ([]*model.Service, error) {
-	records, err := c.dnsClient.getAllRecords()
-	if err != nil {
-		return nil, err
-	}
-
-	services := make([]*model.Service, len(records))
-	for i := range records {
-		services[i] = convertServices(&records[i])
-		log.Debugf("serivce %d: %v", i, services[i])
-	}
-
-	return services, nil
+	log.Info("GetServices")
+	return nil, nil
 }
 
 // GetService retrieves a service by host name if it exists
 func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
-	records, err := c.dnsClient.getAllRecords()
-	if err != nil {
-		return nil, err
-	}
-	if len(records) == 0 {
-		return nil, errors.New("No DNS records found.")
-	}
-	return convertServices(&records[0]), nil
+	log.Infof("GetService hostname: %v", hostname)
+
+	return nil, nil
 }
 
 // ManagementPorts retrieves set of health check ports by instance IP.
@@ -121,6 +115,35 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 
 // Run all controllers until a signal is received
 func (c *Controller) Run(stop <-chan struct{}) {
+
+	es := make(v1.EventStream, 0)
+	ctx, _ := context.WithTimeout(context.Background(), 60*time.Second)
+	go func() {
+		err := c.client.Subscribe(ctx, es)
+		if err != nil {
+			log.Fatalf("Failed to subscribe Mesos-operator API: %v", err)
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			break
+		case e := <-es:
+			eventType := e.GetType()
+			switch eventType {
+			case mesos_v1_master.Event_SUBSCRIBED:
+				log.Infof("Event_SUBSCRIBED %v", e.GetSubscribed().GetGetState())
+			case mesos_v1_master.Event_TASK_ADDED:
+				log.Infof("Event_SUBSCRIBED %v", e.GetTaskAdded().GetTask())
+			case mesos_v1_master.Event_TASK_UPDATED:
+				log.Infof("Event_SUBSCRIBED %v", e.GetTaskUpdated().GetState())
+			default:
+				log.Infof("event type: %v", eventType)
+			}
+		}
+	}
+
 	<- stop
 	log.Info("Stop Mesos controller")
 }
