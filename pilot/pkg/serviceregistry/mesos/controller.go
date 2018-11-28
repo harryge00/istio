@@ -117,9 +117,8 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 func (c *Controller) Run(stop <-chan struct{}) {
 
 	es := make(v1.EventStream, 0)
-	ctx, _ := context.WithTimeout(context.Background(), 60*time.Second)
 	go func() {
-		err := c.client.Subscribe(ctx, es)
+		err := c.client.Subscribe(context.TODO(), es)
 		if err != nil {
 			log.Fatalf("Failed to subscribe Mesos-operator API: %v", err)
 		}
@@ -127,7 +126,7 @@ func (c *Controller) Run(stop <-chan struct{}) {
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-stop:
 			break
 		case e := <-es:
 			eventType := e.GetType()
@@ -135,16 +134,19 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			case mesos_v1_master.Event_SUBSCRIBED:
 				log.Infof("Event_SUBSCRIBED %v", e.GetSubscribed().GetGetState())
 			case mesos_v1_master.Event_TASK_ADDED:
-				log.Infof("Event_SUBSCRIBED %v", e.GetTaskAdded().GetTask())
+				task := e.GetTaskAdded().GetTask()
+				log.Infof("Event_TASK_ADDED labels:%v, discovery: %v", task.Labels, *task.Discovery)
+				log.Infof("Event_TASK_ADDED %v", task)
 			case mesos_v1_master.Event_TASK_UPDATED:
-				log.Infof("Event_SUBSCRIBED %v", e.GetTaskUpdated().GetState())
+				task := e.GetTaskUpdated()
+				log.Infof("Event_TASK_UPDATED task: %v", task)
+				log.Infof("Event_TASK_UPDATED state %v", e.GetTaskUpdated().GetState())
 			default:
 				log.Infof("event type: %v", eventType)
 			}
 		}
 	}
 
-	<- stop
 	log.Info("Stop Mesos controller")
 }
 
