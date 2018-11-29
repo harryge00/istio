@@ -15,7 +15,6 @@
 package mesos
 
 import (
-	"time"
 	"context"
 
 	"istio.io/istio/pilot/pkg/model"
@@ -25,6 +24,10 @@ import (
 
 	"github.com/miroswan/mesops/pkg/v1"
 
+	"istio.io/istio/pilot/pkg/serviceregistry/kube"
+	"sort"
+	"github.com/mesos/go-proto/mesos/v1"
+	"fmt"
 )
 
 type MesosCall struct {
@@ -36,11 +39,6 @@ type Controller struct {
 	// ClusterID identifies the remote cluster in a multicluster env.
 	ClusterID string
 
-	// XDSUpdater will push EDS changes to the ADS model.
-	XDSUpdater model.XDSUpdater
-
-	stop chan struct{}
-
 	sync.RWMutex
 	// servicesMap stores hostname ==> service, it is used to reduce convertService calls.
 	servicesMap map[model.Hostname]*model.Service
@@ -49,8 +47,8 @@ type Controller struct {
 }
 
 // NewController creates a new Consul controller
-func NewController(serverURL string, timeout time.Duration) (*Controller, error) {
-	log.Infof("serverURL: %v, timeout: %v", serverURL, timeout)
+func NewController(serverURL string, options kube.ControllerOptions) (*Controller, error) {
+	log.Infof("serverURL: %v, options: %v", serverURL, options)
 
 	client, err := v1.NewMasterBuilder(serverURL).Build()
 	if err != nil {
@@ -59,20 +57,31 @@ func NewController(serverURL string, timeout time.Duration) (*Controller, error)
 
 	return &Controller{
 		client: client,
+		servicesMap:  make(map[model.Hostname]*model.Service),
 	}, nil
 }
 
 // Services list declarations of all services in the system
 func (c *Controller) Services() ([]*model.Service, error) {
 	log.Info("GetServices")
-	return nil, nil
+	c.RLock()
+	out := make([]*model.Service, 0, len(c.servicesMap))
+	for hostname, svc := range c.servicesMap {
+		log.Debugf("%s, %v", hostname, svc)
+		out = append(out, svc)
+	}
+	c.RUnlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
+
+	return out, nil
 }
 
 // GetService retrieves a service by host name if it exists
 func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
-	log.Infof("GetService hostname: %v", hostname)
-
-	return nil, nil
+	c.RLock()
+	defer c.RUnlock()
+	log.Debugf("GetService hostname: %v -> %v", hostname, c.servicesMap[hostname])
+	return c.servicesMap[hostname], nil
 }
 
 // ManagementPorts retrieves set of health check ports by instance IP.
@@ -80,6 +89,8 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 // manage the service instances. In future, when we integrate Nomad, we
 // might revisit this function.
 func (c *Controller) ManagementPorts(addr string) model.PortList {
+	log.Info("ManagementPorts")
+
 	return nil
 }
 
@@ -88,6 +99,7 @@ func (c *Controller) ManagementPorts(addr string) model.PortList {
 // manage the service instances. In future, when we integrate Nomad, we
 // might revisit this function.
 func (c *Controller) WorkloadHealthCheckInfo(addr string) model.ProbeList {
+	log.Info("WorkloadHealthCheckInfo")
 	return nil
 }
 
@@ -115,7 +127,6 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 
 // Run all controllers until a signal is received
 func (c *Controller) Run(stop <-chan struct{}) {
-
 	es := make(v1.EventStream, 0)
 	go func() {
 		err := c.client.Subscribe(context.TODO(), es)
@@ -136,7 +147,12 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			case mesos_v1_master.Event_TASK_ADDED:
 				task := e.GetTaskAdded().GetTask()
 				log.Infof("Event_TASK_ADDED labels:%v, discovery: %v", task.Labels, *task.Discovery)
+
 				log.Infof("Event_TASK_ADDED %v", task)
+				service := convertTask(task)
+				c.Lock()
+				c.servicesMap[service.Hostname] = service
+				c.Unlock()
 			case mesos_v1_master.Event_TASK_UPDATED:
 				task := e.GetTaskUpdated()
 				log.Infof("Event_TASK_UPDATED task: %v", task)
@@ -148,6 +164,55 @@ func (c *Controller) Run(stop <-chan struct{}) {
 	}
 
 	log.Info("Stop Mesos controller")
+}
+
+
+func serviceHostname(name *string) model.Hostname {
+	return model.Hostname(fmt.Sprintf("%s.marathon.autoip.dcos.thisdcos.directory", *name))
+}
+
+func convertTask(task *mesos_v1.Task) *model.Service {
+	if task == nil || task.Discovery == nil {
+		log.Errorf("Illegal Task: %v", task)
+		return nil
+	}
+
+	meshExternal := false
+	resolution := model.ClientSideLB
+
+	var ports model.PortList
+	if task.Discovery.Ports != nil {
+		ports = make(model.PortList, len(task.Discovery.Ports.Ports))
+		for i, port := range task.Discovery.Ports.Ports {
+			ports[i] = &model.Port{
+				Name: *port.Name,
+				Port: int(*port.Number),
+				Protocol: model.Protocol(*port.Protocol),
+			}
+		}
+	} else {
+		log.Errorf("Illegal Task Port: %v", task.Discovery)
+	}
+
+	svcPorts := make(model.PortList, 0, len(ports))
+	for _, port := range ports {
+		svcPorts = append(svcPorts, port)
+	}
+
+	hostname := serviceHostname(task.Name)
+	out := &model.Service{
+		Hostname:     hostname,
+		Address:      "0.0.0.0",
+		Ports:        ports,
+		MeshExternal: meshExternal,
+		Resolution:   resolution,
+		Attributes: model.ServiceAttributes{
+			Name:      string(hostname),
+			Namespace: model.IstioDefaultConfigNamespace,
+		},
+	}
+
+	return out
 }
 
 // AppendServiceHandler implements a service catalog operation
