@@ -54,7 +54,17 @@ type ControllerOptions struct {
 // Controller communicates with Consul and monitors for changes
 type Controller struct {
 	sync.RWMutex
-	// podMap stores hostname ==> service, it is used to reduce convertService calls.
+	// podMap stores podName ==> podInfo
+	/*
+	/group/nginx-pod ->
+	{
+		front-service: [{9080, "tcp"}, {9001, "udp"}]
+		{
+			instance-abc-1: "9.0.0.1",
+			instance-abc-2: "9.0.0.2",
+		}
+	}
+ 	*/
 	podMap map[string]*PodInfo
 
 	client marathon.Marathon
@@ -91,7 +101,6 @@ func NewController(options ControllerOptions) (*Controller, error) {
 		return nil, err
 	}
 
-
 	// TODO: support using other domains
 	DomainSuffix = options.VIPDomain
 	return &Controller{
@@ -107,35 +116,62 @@ func NewController(options ControllerOptions) (*Controller, error) {
 func (c *Controller) Services() ([]*model.Service, error) {
 	log.Info("GetServices")
 	c.RLock()
-	out := make([]*model.Service)
-	for name, pod := range c.podMap {
+	serviceMap := make(map[model.Hostname]*model.Service)
+	for _, pod := range c.podMap {
 		for lb, ports := range pod.LBPorts {
-			service := &model.Service{
-				Hostname:     hostname,
-				Address:      "0.0.0.0",
-				Ports:        svcPorts,
-				MeshExternal: meshExternal,
-				Resolution:   resolution,
-				Attributes: model.ServiceAttributes{
-					Name:      string(hostname),
-					Namespace: model.IstioDefaultConfigNamespace,
-				},
+			hostname := serviceHostname(&lb)
+			service := serviceMap[hostname]
+			if service == nil {
+				service = &model.Service{
+					Hostname:     hostname,
+					// TODO: use Marathon-LB address
+					Ports:	model.PortList{},
+					Address:      "0.0.0.0",
+					MeshExternal: false,
+					Resolution:   model.ClientSideLB,
+					Attributes: model.ServiceAttributes{
+						Name:      string(hostname),
+						Namespace: model.IstioDefaultConfigNamespace,
+					},
+				}
 			}
+			service.Ports = append(service.Ports, ports...)
+			serviceMap[hostname] = service
 		}
-
 	}
 	c.RUnlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
 
+	out := make([]*model.Service, 0, len(serviceMap))
+	for _, v := range serviceMap {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
 	return out, nil
 }
 
 // GetService retrieves a service by host name if it exists
 func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
+	log.Debugf("GetService hostname: %v ", hostname)
+	lbName := strings.TrimRight(string(hostname), "." + DomainSuffix)
+	out := &model.Service{
+		Hostname:     hostname,
+		Ports:	model.PortList{},
+		Address:      "0.0.0.0",
+		MeshExternal: false,
+		Resolution:   model.ClientSideLB,
+		Attributes: model.ServiceAttributes{
+			Name:      string(hostname),
+			Namespace: model.IstioDefaultConfigNamespace,
+		},
+	}
 	c.RLock()
 	defer c.RUnlock()
-	log.Debugf("GetService hostname: %v -> %v", hostname, c.podMap[""])
-	return nil, nil
+	for _, podInfo := range c.podMap {
+		if podInfo.LBPorts[lbName] != nil {
+			out.Ports = append(out.Ports, podInfo.LBPorts[lbName]...)
+		}
+	}
+	return out, nil
 }
 
 // ManagementPorts retrieves set of health check ports by instance IP.
@@ -163,6 +199,7 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 	labels model.LabelsCollection) ([]*model.ServiceInstance, error) {
 
 	log.Infof("hostname: %v, port: %v, labels: %v", hostname, port, labels)
+
 	return nil, nil
 }
 
@@ -175,7 +212,36 @@ func portMatch(instance *model.ServiceInstance, port int) bool {
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
 	log.Infof("node: %v", node)
 
+	out := make([]*model.ServiceInstance, 0)
+	c.RLock()
+	defer c.RUnlock()
+	for _, pod := range c.podMap {
+		for _, ip := range pod.InstanceIPMap {
+			if ip == node.IPAddress {
+				out = append(out, &model.ServiceInstance{
+					Endpoint: model.NetworkEndpoint{
+						Address:     addr,
+						Port:        instance.ServicePort,
+						ServicePort: port,
+					},
+					AvailabilityZone: instance.Datacenter,
+					Service: &model.Service{
+						Hostname:     hostname,
+						Address:      instance.ServiceAddress,
+						Ports:        model.PortList{port},
+						MeshExternal: meshExternal,
+						Resolution:   resolution,
+						Attributes: model.ServiceAttributes{
+							Name:      string(hostname),
+							Namespace: model.IstioDefaultConfigNamespace,
+						},
+					},
+					Labels: labels,
+				})
+			}
+		}
 
+	}
 	return nil, nil
 }
 
@@ -218,11 +284,6 @@ func (c *Controller) Run(stop <-chan struct{}) {
 					c.Unlock()
 				}
 			}
-		//case event := <-c.podDeleteChan:
-		//	var podDeleted *marathon.EventPodDeleted
-		//	podDeleted = event.Event.(*marathon.EventPodDeleted)
-		//	log.Infof("pod deleted: %v", podDeleted.URI)
-
 		}
 	}
 
@@ -231,15 +292,21 @@ func (c *Controller) Run(stop <-chan struct{}) {
 	//c.client.RemoveEventsListener(c.podDeleteChan)
 }
 
-type Port struct {
-	Addr string
-	Port int
+// Endpoint is like mesos endpoints.
+// Portmapping between service ports and container ports.
+type Endpoint struct {
+	ContainerPort	int
+	Name string
 	Protocol model.Protocol
 }
 
+// 80 /abc:8080 /abc:9191
+// 8181 /abc:8080 /def:8787
 type PodInfo struct {
-	// endpoint name to port list
-	LBPorts map[string][]Port
+	// LBName to ServicePort
+	LBPorts map[string]model.PortList
+	// ServicePort to ContainerPort
+	PortMapping map[int]model.PortList
 	InstanceIPMap map[string]string
 	Labels map[string]string
 }
@@ -255,44 +322,50 @@ func parseVIP(s string) (addr string, port int, err error) {
 	return
 }
 
-/*
-	nginx-pod ->
-	{
-		front-service: [{9080, "tcp"}, {9001, "udp"}]
-		{
-			instance-abc-1: "9.0.0.1",
-			instance-abc-2: "9.0.0.2",
-		}
-	}
- */
 func getPodInfo(status *marathon.PodStatus) *PodInfo {
-	lbports := make(map[string][]Port)
+	podInfo := &PodInfo{
+		LBPorts: make(map[string]model.PortList),
+		PortMapping: make(map[int]model.PortList),
+		InstanceIPMap: make(map[string]string),
+		Labels: status.Spec.Labels,
+	}
 	for _, con := range status.Spec.Containers {
 		for _, ep := range con.Endpoints {
 			for k, v := range ep.Labels {
 				if strings.HasPrefix(k, "VIP_") && strings.HasPrefix(v, "/") {
 					addr, port, err := parseVIP(v)
-					ports := lbports[addr]
 					if err != nil {
 						log.Errorf("parseVIP %v: %v", v, err)
 						continue
 					}
-					for i := range ep.Protocol {
-						ports = append(ports, Port{
-							Port: port,
-							Protocol: model.ParseProtocol(ep.Protocol[i]),
-						})
+					servicePorts := podInfo.LBPorts[addr]
+					var protocol model.Protocol
+					// Mesos only support two kinds of protocols: tcp, udp.
+					// If the length of ep.Protocol is not 1, we choose tcp?
+					if len(ep.Protocol) == 1 {
+						protocol = model.ParseProtocol(ep.Protocol[0])
+					} else {
+						protocol = model.ProtocolTCP
 					}
-					lbports[addr] = ports
+					servicePorts = append(servicePorts, &model.Port{
+						Name: ep.Name,
+						Port: port,
+						Protocol: protocol,
+					})
+					podInfo.LBPorts[addr] = servicePorts
+
+					containerPorts := podInfo.PortMapping[port]
+					containerPorts = append(containerPorts, &model.Port{
+						Name: ep.Name,
+						Port: ep.ContainerPort,
+						Protocol: protocol,
+					})
+					podInfo.PortMapping[port] = containerPorts
 				}
 			}
 		}
 	}
-	podInfo := &PodInfo{
-		Labels: status.Spec.Labels,
-		LBPorts: lbports,
-		InstanceIPMap: make(map[string]string),
-	}
+
 	for _, inst := range status.Instances {
 		// TODO: make sure only overlay IP is used.
 		if len(inst.Networks) > 0 && len(inst.Networks[0].Addresses) > 0 {
