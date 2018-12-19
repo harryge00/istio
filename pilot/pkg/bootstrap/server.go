@@ -149,18 +149,11 @@ type ConsulArgs struct {
 	Interval  time.Duration
 }
 
-// MesosArgs provides configuration for the Consul service registry.
-type MesosArgs struct {
-	Config    string
-	ServerURL string
-	Timeout  time.Duration
-}
-
 // ServiceArgs provides the composite configuration for all service registries in the system.
 type ServiceArgs struct {
 	Registries []string
 	Consul     ConsulArgs
-	Mesos 		MesosArgs
+	Mesos 		mesos.ControllerOptions
 }
 
 // PilotArgs provides all of the configuration parameters for the Pilot discovery service.
@@ -1034,9 +1027,8 @@ func (s *Server) initConsulRegistry(serviceControllers *aggregate.Controller, ar
 }
 
 func (s *Server) initMesosRegistry(serviceControllers *aggregate.Controller, args *PilotArgs) error {
-	log.Infof("Mesos DNS url: %v", args.Service.Mesos.ServerURL)
-	conctl, conerr := mesos.NewController(
-		args.Service.Mesos.ServerURL, args.Config.ControllerOptions)
+	log.Infof("Mesos Master address: %v", args.Service.Mesos.Master)
+	conctl, conerr := mesos.NewController(args.Service.Mesos)
 	if conerr != nil {
 		return fmt.Errorf("failed to create Mesos controller: %v", conerr)
 	}

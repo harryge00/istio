@@ -123,8 +123,12 @@ func init() {
 		"URL for the Consul server")
 	discoveryCmd.PersistentFlags().DurationVar(&serverArgs.Service.Consul.Interval, "consulserverInterval", 2*time.Second,
 		"Interval (in seconds) for polling the Consul service registry")
-	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.ServerURL, "mesosdnsURL", "",
-		"URL for the Mesos DNS server")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.Master, "mesosMaster", "",
+		"Address for the Mesos Master")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.ContainerDomain, "mesosContainerDomain", "marathon.containerip.dcos.thisdcos.directory",
+		"FQDN Suffix of Container ip. Default 'marathon.containerip.dcos.thisdcos.directory'")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.VIPDomain, "mesosVIPDomain", "marathon.l4lb.thisdcos.directory",
+		"FQDN suffix for service ip with VIP label")
 	discoveryCmd.PersistentFlags().DurationVar(&serverArgs.Service.Mesos.Timeout, "mesosTimeout", 2*time.Second,
 		"Timeout (in seconds) for querying the Mesos dns")
 

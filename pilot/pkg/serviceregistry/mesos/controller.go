@@ -15,49 +15,91 @@
 package mesos
 
 import (
-	"context"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/gambol99/go-marathon"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/log"
 	"sync"
-	"github.com/mesos/go-proto/mesos/v1/master"
 
-	"github.com/miroswan/mesops/pkg/v1"
 
-	"istio.io/istio/pilot/pkg/serviceregistry/kube"
-	"sort"
-	"github.com/mesos/go-proto/mesos/v1"
 	"fmt"
+	"github.com/mesos/go-proto/mesos/v1"
+	"sort"
+)
+
+var (
+	DomainSuffix string
 )
 
 type MesosCall struct {
 	Type string `json:"type"`
 }
 
+// ControllerOptions stores the configurable attributes of a Controller.
+type ControllerOptions struct {
+	// FQDN Suffix of Container ip. Default "marathon.containerip.dcos.thisdcos.directory"
+	// For overlay network, IP like "9.0.x.x" will be used by dcos-net.
+	ContainerDomain    string
+	// FQDN suffix for vip. Default ".marathon.l4lb.thisdcos.directory"
+	VIPDomain	string
+	// FQDN suffix for agent IP. Default "marathon.agentip.dcos.thisdcos.directory"
+	AgentDoamin string
+	Master string
+	Timeout  time.Duration
+}
+
 // Controller communicates with Consul and monitors for changes
 type Controller struct {
-	// ClusterID identifies the remote cluster in a multicluster env.
-	ClusterID string
-
 	sync.RWMutex
-	// servicesMap stores hostname ==> service, it is used to reduce convertService calls.
-	servicesMap map[model.Hostname]*model.Service
+	// podMap stores hostname ==> service, it is used to reduce convertService calls.
+	podMap map[string]*PodInfo
 
-	client *v1.Master
+	client marathon.Marathon
+	eventChan marathon.EventsChannel
+	deploymentsChan marathon.EventsChannel
+	podDeleteChan marathon.EventsChannel
 }
 
 // NewController creates a new Consul controller
-func NewController(serverURL string, options kube.ControllerOptions) (*Controller, error) {
-	log.Infof("serverURL: %v, options: %v", serverURL, options)
+func NewController(options ControllerOptions) (*Controller, error) {
+	log.Infof("Mesos options: %v", options)
 
-	client, err := v1.NewMasterBuilder(serverURL).Build()
+	config := marathon.NewDefaultConfig()
+	config.URL = options.Master
+	config.EventsTransport = marathon.EventsTransportSSE
+	log.Infof("Creating a client, Marathon: %s", config.URL)
+
+	client, err := marathon.NewClient(config)
 	if err != nil {
 		return nil, err
 	}
 
+	// Register for events
+	events, err := client.AddEventsListener(marathon.EventIDApplications)
+	if err != nil {
+		return nil, err
+	}
+	deployments, err := client.AddEventsListener(marathon.EventIDDeploymentSuccess)
+	if err != nil {
+		return nil, err
+	}
+	podDelChan, err := client.AddEventsListener(marathon.EventIdPodDeleted)
+	if err != nil {
+		return nil, err
+	}
+
+
+	// TODO: support using other domains
+	DomainSuffix = options.VIPDomain
 	return &Controller{
 		client: client,
-		servicesMap:  make(map[model.Hostname]*model.Service),
+		podMap:  make(map[string]*PodInfo),
+		eventChan: events,
+		deploymentsChan: deployments,
+		podDeleteChan: podDelChan,
 	}, nil
 }
 
@@ -65,10 +107,22 @@ func NewController(serverURL string, options kube.ControllerOptions) (*Controlle
 func (c *Controller) Services() ([]*model.Service, error) {
 	log.Info("GetServices")
 	c.RLock()
-	out := make([]*model.Service, 0, len(c.servicesMap))
-	for hostname, svc := range c.servicesMap {
-		log.Debugf("%s, %v", hostname, svc)
-		out = append(out, svc)
+	out := make([]*model.Service)
+	for name, pod := range c.podMap {
+		for lb, ports := range pod.LBPorts {
+			service := &model.Service{
+				Hostname:     hostname,
+				Address:      "0.0.0.0",
+				Ports:        svcPorts,
+				MeshExternal: meshExternal,
+				Resolution:   resolution,
+				Attributes: model.ServiceAttributes{
+					Name:      string(hostname),
+					Namespace: model.IstioDefaultConfigNamespace,
+				},
+			}
+		}
+
 	}
 	c.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
@@ -80,8 +134,8 @@ func (c *Controller) Services() ([]*model.Service, error) {
 func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
 	c.RLock()
 	defer c.RUnlock()
-	log.Debugf("GetService hostname: %v -> %v", hostname, c.servicesMap[hostname])
-	return c.servicesMap[hostname], nil
+	log.Debugf("GetService hostname: %v -> %v", hostname, c.podMap[""])
+	return nil, nil
 }
 
 // ManagementPorts retrieves set of health check ports by instance IP.
@@ -125,50 +179,133 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 	return nil, nil
 }
 
-// Run all controllers until a signal is received
-func (c *Controller) Run(stop <-chan struct{}) {
-	es := make(v1.EventStream, 0)
-	go func() {
-		err := c.client.Subscribe(context.TODO(), es)
-		if err != nil {
-			log.Fatalf("Failed to subscribe Mesos-operator API: %v", err)
-		}
-	}()
 
+func (c *Controller) Run(stop <-chan struct{}) {
 	for {
 		select {
-		case <-stop:
-			break
-		case e := <-es:
-			eventType := e.GetType()
-			switch eventType {
-			case mesos_v1_master.Event_SUBSCRIBED:
-				log.Infof("Event_SUBSCRIBED %v", e.GetSubscribed().GetGetState())
-			case mesos_v1_master.Event_TASK_ADDED:
-				task := e.GetTaskAdded().GetTask()
-				log.Infof("Event_TASK_ADDED labels:%v, discovery: %v", task.Labels, *task.Discovery)
+		case <- stop:
+			log.Info("Exiting the loop")
 
-				log.Infof("Event_TASK_ADDED %v", task)
-				service := convertTask(task)
-				c.Lock()
-				c.servicesMap[service.Hostname] = service
-				c.Unlock()
-			case mesos_v1_master.Event_TASK_UPDATED:
-				task := e.GetTaskUpdated()
-				log.Infof("Event_TASK_UPDATED task: %v", task)
-				log.Infof("Event_TASK_UPDATED state %v", e.GetTaskUpdated().GetState())
-			default:
-				log.Infof("event type: %v", eventType)
+		case event := <-c.deploymentsChan:
+			var deployment *marathon.EventDeploymentSuccess
+			deployment = event.Event.(*marathon.EventDeploymentSuccess)
+			log.Infof("deployment success: %v", deployment.Plan)
+			steps := deployment.Plan.Steps
+			if len(steps) == 0 {
+				log.Warnf("No steps: %v", deployment)
+				continue
 			}
+			actions := steps[0].Actions
+			if len(actions) > 0 && actions[0].Pod != "" {
+				switch actions[0].Action {
+				case "StopPod":
+					log.Infof("stoppod: %v", actions[0].Pod)
+					c.Lock()
+					delete(c.podMap, actions[0].Pod)
+					log.Infof("podMap: %v", c.podMap)
+					c.Unlock()
+				default:
+					pod := actions[0].Pod
+					podStatus, err := c.client.PodStatus(pod)
+					if err != nil {
+						log.Errorf("Failed to get pod %v status: %v", pod, err)
+						continue
+					}
+					podInfo := getPodInfo(podStatus)
+					log.Infof("podInfo %v", podInfo)
+					c.Lock()
+					c.podMap[pod] = podInfo
+					c.Unlock()
+				}
+			}
+		//case event := <-c.podDeleteChan:
+		//	var podDeleted *marathon.EventPodDeleted
+		//	podDeleted = event.Event.(*marathon.EventPodDeleted)
+		//	log.Infof("pod deleted: %v", podDeleted.URI)
+
 		}
 	}
 
-	log.Info("Stop Mesos controller")
+	c.client.RemoveEventsListener(c.deploymentsChan)
+	//c.client.RemoveEventsListener(c.eventChan)
+	//c.client.RemoveEventsListener(c.podDeleteChan)
+}
+
+type Port struct {
+	Addr string
+	Port int
+	Protocol model.Protocol
+}
+
+type PodInfo struct {
+	// endpoint name to port list
+	LBPorts map[string][]Port
+	InstanceIPMap map[string]string
+	Labels map[string]string
+}
+
+func parseVIP(s string) (addr string, port int, err error) {
+	arr := strings.Split(s[1:], ":")
+	if len(arr) == 2 {
+		addr = arr[0]
+		port, err = strconv.Atoi(arr[1])
+	} else {
+		err = fmt.Errorf("Illegal vip label: %v", s)
+	}
+	return
+}
+
+/*
+	nginx-pod ->
+	{
+		front-service: [{9080, "tcp"}, {9001, "udp"}]
+		{
+			instance-abc-1: "9.0.0.1",
+			instance-abc-2: "9.0.0.2",
+		}
+	}
+ */
+func getPodInfo(status *marathon.PodStatus) *PodInfo {
+	lbports := make(map[string][]Port)
+	for _, con := range status.Spec.Containers {
+		for _, ep := range con.Endpoints {
+			for k, v := range ep.Labels {
+				if strings.HasPrefix(k, "VIP_") && strings.HasPrefix(v, "/") {
+					addr, port, err := parseVIP(v)
+					ports := lbports[addr]
+					if err != nil {
+						log.Errorf("parseVIP %v: %v", v, err)
+						continue
+					}
+					for i := range ep.Protocol {
+						ports = append(ports, Port{
+							Port: port,
+							Protocol: model.ParseProtocol(ep.Protocol[i]),
+						})
+					}
+					lbports[addr] = ports
+				}
+			}
+		}
+	}
+	podInfo := &PodInfo{
+		Labels: status.Spec.Labels,
+		LBPorts: lbports,
+		InstanceIPMap: make(map[string]string),
+	}
+	for _, inst := range status.Instances {
+		// TODO: make sure only overlay IP is used.
+		if len(inst.Networks) > 0 && len(inst.Networks[0].Addresses) > 0 {
+			podInfo.InstanceIPMap[inst.ID] = inst.Networks[0].Addresses[0]
+		}
+	}
+
+	return podInfo
 }
 
 
 func serviceHostname(name *string) model.Hostname {
-	return model.Hostname(fmt.Sprintf("%s.marathon.autoip.dcos.thisdcos.directory", *name))
+	return model.Hostname(fmt.Sprintf("%s.%s", *name, DomainSuffix))
 }
 
 func convertTask(task *mesos_v1.Task) *model.Service {
