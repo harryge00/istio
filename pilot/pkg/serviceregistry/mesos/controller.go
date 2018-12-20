@@ -152,7 +152,12 @@ func (c *Controller) Services() ([]*model.Service, error) {
 // GetService retrieves a service by host name if it exists
 func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
 	log.Debugf("GetService hostname: %v ", hostname)
-	lbName := strings.TrimRight(string(hostname), "." + DomainSuffix)
+	lbName, err := parseHostname(hostname)
+	if err != nil {
+		log.Infof("parseHostname(%s) => error %v", hostname, err)
+		return nil, err
+	}
+
 	out := &model.Service{
 		Hostname:     hostname,
 		Ports:	model.PortList{},
@@ -197,54 +202,130 @@ func (c *Controller) WorkloadHealthCheckInfo(addr string) model.ProbeList {
 // any of the supplied labels. All instances match an empty tag list.
 func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 	labels model.LabelsCollection) ([]*model.ServiceInstance, error) {
-
 	log.Infof("hostname: %v, port: %v, labels: %v", hostname, port, labels)
+	log.Debugf("GetService hostname: %v ", hostname)
+	lbName, err := parseHostname(hostname)
+	if err != nil {
+		log.Infof("parseHostname(%s) => error %v", hostname, err)
+		return nil, err
+	}
+	instances := []*model.ServiceInstance{}
 
-	return nil, nil
+	c.RLock()
+	for _, pod := range c.podMap {
+		if portMatch(pod.LBPorts[lbName], port) && labels.HasSubsetOf(pod.Labels) {
+			instances = append(instances, getInstancesOfPod(pod)...)
+		}
+	}
+	c.RUnlock()
+
+	return instances, nil
 }
 
+func getInstancesOfPod(pod *PodInfo) []*model.ServiceInstance {
+	out := make([]*model.ServiceInstance, 0)
+
+	for lb, portList := range pod.LBPorts {
+		hostName := serviceHostname(&lb)
+		service := model.Service{
+			Hostname:     hostName,
+			// TODO: use marathon-lb address
+			Address:      "0.0.0.0",
+			Ports:        portList,
+			MeshExternal: false,
+			Resolution:   model.ClientSideLB,
+			Attributes: model.ServiceAttributes{
+				Name:      string(hostName),
+				Namespace: model.IstioDefaultConfigNamespace,
+			},
+		}
+		for _, svcPort := range portList {
+			for ip := range pod.InstanceIPMap {
+				for _, containerPort := range pod.PortMapping[svcPort.Port] {
+					out = append(out, &model.ServiceInstance{
+						Endpoint: model.NetworkEndpoint{
+							Address:     ip,
+							Port:        containerPort.Port,
+							ServicePort: svcPort,
+						},
+						Service: &service,
+						Labels: pod.Labels,
+					})
+				}
+			}
+		}
+
+	}
+	return out
+}
+
+
 // returns true if an instance's port matches with any in the provided list
-func portMatch(instance *model.ServiceInstance, port int) bool {
-	return port == 0 || port == instance.Endpoint.ServicePort.Port
+func portMatch(portList model.PortList, servicePort int) bool {
+	if servicePort == 0 {
+		return true
+	}
+	for _, port := range portList {
+		if port.Port == servicePort {
+			return true
+		}
+	}
+	return false
 }
 
 // GetProxyServiceInstances lists service instances co-located with a given proxy
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
-	log.Infof("node: %v", node)
-
 	out := make([]*model.ServiceInstance, 0)
 	c.RLock()
 	defer c.RUnlock()
 	for _, pod := range c.podMap {
 		for _, ip := range pod.InstanceIPMap {
 			if ip == node.IPAddress {
+				// serviceMap -> hostName
+				out = append(out, getInstancesByIP(ip, pod)...)
+			}
+		}
+
+	}
+	log.Infof("GetProxyServiceInstances %v: %v", node, out)
+
+	return out, nil
+}
+
+func getInstancesByIP(ip string, pod *PodInfo) []*model.ServiceInstance {
+	out := make([]*model.ServiceInstance, 0)
+
+	for lb, portList := range pod.LBPorts {
+		hostName := serviceHostname(&lb)
+		service := model.Service{
+			Hostname:     hostName,
+			// TODO: use marathon-lb address
+			Address:      "0.0.0.0",
+			Ports:        portList,
+			MeshExternal: false,
+			Resolution:   model.ClientSideLB,
+			Attributes: model.ServiceAttributes{
+				Name:      string(hostName),
+				Namespace: model.IstioDefaultConfigNamespace,
+			},
+		}
+		for _, svcPort := range portList {
+			for _, containerPort := range pod.PortMapping[svcPort.Port] {
 				out = append(out, &model.ServiceInstance{
 					Endpoint: model.NetworkEndpoint{
-						Address:     addr,
-						Port:        instance.ServicePort,
-						ServicePort: port,
+						Address:     ip,
+						Port:        containerPort.Port,
+						ServicePort: svcPort,
 					},
-					AvailabilityZone: instance.Datacenter,
-					Service: &model.Service{
-						Hostname:     hostname,
-						Address:      instance.ServiceAddress,
-						Ports:        model.PortList{port},
-						MeshExternal: meshExternal,
-						Resolution:   resolution,
-						Attributes: model.ServiceAttributes{
-							Name:      string(hostname),
-							Namespace: model.IstioDefaultConfigNamespace,
-						},
-					},
-					Labels: labels,
+					Service: &service,
+					Labels: pod.Labels,
 				})
 			}
 		}
 
 	}
-	return nil, nil
+	return out
 }
-
 
 func (c *Controller) Run(stop <-chan struct{}) {
 	for {
@@ -376,6 +457,16 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 	return podInfo
 }
 
+// parseHostname extracts service name from the service hostname
+func parseHostname(hostname model.Hostname) (name string, err error) {
+	parts := strings.Split(string(hostname), ".")
+	if len(parts) < 1 || parts[0] == "" {
+		err = fmt.Errorf("missing service name from the service hostname %q", hostname)
+		return
+	}
+	name = parts[0]
+	return
+}
 
 func serviceHostname(name *string) model.Hostname {
 	return model.Hostname(fmt.Sprintf("%s.%s", *name, DomainSuffix))

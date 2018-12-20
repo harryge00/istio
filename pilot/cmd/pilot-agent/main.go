@@ -129,7 +129,7 @@ var (
 				} else if registry == serviceregistry.ConsulRegistry {
 					role.Domain = "service.consul"
 				} else if registry == serviceregistry.MesosRegistry {
-					role.Domain = "marathon.autoip.dcos.thisdcos.directory"
+					role.Domain = "marathon.l4lb.thisdcos.directory"
 				} else {
 					role.Domain = ""
 				}
