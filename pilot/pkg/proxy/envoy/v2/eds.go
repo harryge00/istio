@@ -16,6 +16,7 @@ package v2
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"reflect"
@@ -385,7 +386,7 @@ func (s *DiscoveryServer) updateCluster(push *model.PushContext, clusterName str
 			adsLog.Debugf("EDS: cluster %q (host=%s ports=%v labels=%v) has no instances", clusterName, hostname, port, labels)
 		}
 		edsInstances.With(prometheus.Labels{"cluster": clusterName}).Set(float64(len(instances)))
-
+		adsLog.Infof("updateCluster %v", len(instances))
 		locEps = localityLbEndpointsFromInstances(instances)
 	}
 
@@ -581,6 +582,8 @@ func localityLbEndpointsFromInstances(instances []*model.ServiceInstance) []endp
 			totalXDSInternalErrors.Add(1)
 			continue
 		}
+		instJson, _ := json.Marshal(*instance)
+		adsLog.Infof("localityLbEndpointsFromInstances: %v, lbEp: %v", string(instJson), lbEp.Endpoint)
 		// TODO: Need to accommodate region, zone and subzone. Older Pilot datamodel only has zone = availability zone.
 		// Once we do that, the key must be a | separated tupple.
 		locality := instance.GetAZ()

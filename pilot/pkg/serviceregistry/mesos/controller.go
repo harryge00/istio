@@ -15,6 +15,7 @@
 package mesos
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -101,20 +102,46 @@ func NewController(options ControllerOptions) (*Controller, error) {
 		return nil, err
 	}
 
-	// TODO: support using other domains
-	DomainSuffix = options.VIPDomain
-	return &Controller{
+
+	c := &Controller{
 		client: client,
 		podMap:  make(map[string]*PodInfo),
 		eventChan: events,
 		deploymentsChan: deployments,
 		podDeleteChan: podDelChan,
-	}, nil
+	}
+
+	err = c.SyncPodmap()
+	if err != nil {
+		return nil, err
+	}
+	// TODO: support using other domains
+	DomainSuffix = options.VIPDomain
+	return c, nil
+}
+
+func (c *Controller) SyncPodmap() error {
+	c.Lock()
+	defer c.Unlock()
+	pods, err := c.client.Pods()
+	if err != nil {
+		return err
+	}
+	for _, pod := range pods {
+		podStatus, err := c.client.PodStatus(pod.ID)
+		if err != nil {
+			log.Errorf("Failed to get pod %v status: %v", pod.ID, err)
+			continue
+		}
+		podInfo := getPodInfo(podStatus)
+		log.Infof("ID: %v, push podInfo %v", pod.ID, podInfo)
+		c.podMap[pod.ID] = podInfo
+	}
+	return nil
 }
 
 // Services list declarations of all services in the system
 func (c *Controller) Services() ([]*model.Service, error) {
-	log.Info("GetServices")
 	c.RLock()
 	serviceMap := make(map[model.Hostname]*model.Service)
 	for _, pod := range c.podMap {
@@ -135,23 +162,54 @@ func (c *Controller) Services() ([]*model.Service, error) {
 					},
 				}
 			}
-			service.Ports = append(service.Ports, ports...)
+			// Append only unique ports
+			portExists := make(map[int]bool)
+			for _, port := range service.Ports {
+				portExists[port.Port] = true
+			}
+			for _, port := range ports {
+				if !portExists[port.Port] {
+					service.Ports = append(service.Ports, port)
+					portExists[port.Port] = true
+				}
+			}
 			serviceMap[hostname] = service
 		}
 	}
 	c.RUnlock()
+	log.Infof("serviceMap: %v", serviceMap)
+
 
 	out := make([]*model.Service, 0, len(serviceMap))
 	for _, v := range serviceMap {
 		out = append(out, v)
 	}
+	arr := marshalServices(out)
+	log.Infof("Services: %v", arr)
 	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
 	return out, nil
 }
 
+func marshalServices(svc []*model.Service) []string {
+	arr := make([]string, 0, len(svc))
+	for _, v := range svc {
+		j, _ := json.Marshal(*v)
+		arr = append(arr, string(j))
+	}
+	return arr
+}
+
+func marshalServiceInstances(svc []*model.ServiceInstance) []string {
+	arr := make([]string, 0, len(svc))
+	for _, v := range svc {
+		j, _ := json.Marshal(*v)
+		arr = append(arr, string(j))
+	}
+	return arr
+}
+
 // GetService retrieves a service by host name if it exists
 func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
-	log.Debugf("GetService hostname: %v ", hostname)
 	lbName, err := parseHostname(hostname)
 	if err != nil {
 		log.Infof("parseHostname(%s) => error %v", hostname, err)
@@ -171,11 +229,20 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 	}
 	c.RLock()
 	defer c.RUnlock()
+	portExists := make(map[int]bool)
 	for _, podInfo := range c.podMap {
-		if podInfo.LBPorts[lbName] != nil {
-			out.Ports = append(out.Ports, podInfo.LBPorts[lbName]...)
+		portList := podInfo.LBPorts[lbName]
+		for _, port := range portList {
+			if !portExists[port.Port] {
+				portExists[port.Port] = true
+				out.Ports = append(out.Ports, port)
+			}
 		}
 	}
+
+	j, _ := json.Marshal(*out)
+	log.Infof("GetService hostname %v: %v", hostname, string(j))
+
 	return out, nil
 }
 
@@ -184,7 +251,7 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 // manage the service instances. In future, when we integrate Nomad, we
 // might revisit this function.
 func (c *Controller) ManagementPorts(addr string) model.PortList {
-	log.Info("ManagementPorts")
+	log.Info("ManagementPorts not implemented")
 
 	return nil
 }
@@ -194,7 +261,7 @@ func (c *Controller) ManagementPorts(addr string) model.PortList {
 // manage the service instances. In future, when we integrate Nomad, we
 // might revisit this function.
 func (c *Controller) WorkloadHealthCheckInfo(addr string) model.ProbeList {
-	log.Info("WorkloadHealthCheckInfo")
+	log.Info("WorkloadHealthCheckInfo not implemented")
 	return nil
 }
 
@@ -202,8 +269,6 @@ func (c *Controller) WorkloadHealthCheckInfo(addr string) model.ProbeList {
 // any of the supplied labels. All instances match an empty tag list.
 func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 	labels model.LabelsCollection) ([]*model.ServiceInstance, error) {
-	log.Infof("hostname: %v, port: %v, labels: %v", hostname, port, labels)
-	log.Debugf("GetService hostname: %v ", hostname)
 	lbName, err := parseHostname(hostname)
 	if err != nil {
 		log.Infof("parseHostname(%s) => error %v", hostname, err)
@@ -212,12 +277,15 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 	instances := []*model.ServiceInstance{}
 
 	c.RLock()
-	for _, pod := range c.podMap {
+	for name, pod := range c.podMap {
 		if portMatch(pod.LBPorts[lbName], port) && labels.HasSubsetOf(pod.Labels) {
+			log.Infof("port matched: %v : %v", name, port)
 			instances = append(instances, getInstancesOfPod(pod)...)
 		}
 	}
 	c.RUnlock()
+	arr := marshalServiceInstances(instances)
+	log.Infof("InstancesByPort hostname: %v, port: %v, labels: %v -> %v", hostname, port, labels, arr)
 
 	return instances, nil
 }
@@ -227,35 +295,38 @@ func getInstancesOfPod(pod *PodInfo) []*model.ServiceInstance {
 
 	for lb, portList := range pod.LBPorts {
 		hostName := serviceHostname(&lb)
-		service := model.Service{
-			Hostname:     hostName,
-			// TODO: use marathon-lb address
-			Address:      "0.0.0.0",
-			Ports:        portList,
-			MeshExternal: false,
-			Resolution:   model.ClientSideLB,
-			Attributes: model.ServiceAttributes{
-				Name:      string(hostName),
-				Namespace: model.IstioDefaultConfigNamespace,
-			},
-		}
 		for _, svcPort := range portList {
 			for _, ip := range pod.InstanceIPMap {
+				service := model.Service{
+					Hostname:     hostName,
+					// TODO: use marathon-lb address
+					Address:      ip,
+					Ports:        portList,
+					MeshExternal: false,
+					Resolution:   model.ClientSideLB,
+					Attributes: model.ServiceAttributes{
+						Name:      string(hostName),
+						Namespace: model.IstioDefaultConfigNamespace,
+					},
+				}
 				for _, containerPort := range pod.PortMapping[svcPort.Port] {
-					out = append(out, &model.ServiceInstance{
+					inst := model.ServiceInstance{
 						Endpoint: model.NetworkEndpoint{
 							Address:     ip,
 							Port:        containerPort.Port,
 							ServicePort: svcPort,
 						},
+						AvailabilityZone: "default",
 						Service: &service,
 						Labels: pod.Labels,
-					})
+					}
+					out = append(out, &inst)
+
 				}
 			}
 		}
-
 	}
+
 	return out
 }
 
@@ -287,7 +358,8 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 		}
 
 	}
-	log.Infof("GetProxyServiceInstances %v: %v", node, out)
+	arr := marshalServiceInstances(out)
+	log.Infof("GetProxyServiceInstances %v: %v", node, arr)
 
 	return out, nil
 }
@@ -317,6 +389,7 @@ func getInstancesByIP(ip string, pod *PodInfo) []*model.ServiceInstance {
 						Port:        containerPort.Port,
 						ServicePort: svcPort,
 					},
+					AvailabilityZone: "default",
 					Service: &service,
 					Labels: pod.Labels,
 				})
@@ -359,7 +432,7 @@ func (c *Controller) Run(stop <-chan struct{}) {
 						continue
 					}
 					podInfo := getPodInfo(podStatus)
-					log.Infof("podInfo %v", podInfo)
+					log.Infof("podInfo %v: %v", pod, podInfo)
 					c.Lock()
 					c.podMap[pod] = podInfo
 					c.Unlock()

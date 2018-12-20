@@ -15,6 +15,7 @@
 package v1alpha3
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 	"strings"
@@ -88,13 +89,17 @@ func (configgen *ConfigGeneratorImpl) BuildClusters(env *model.Environment, prox
 func normalizeClusters(push *model.PushContext, proxy *model.Proxy, clusters []*v2.Cluster) []*v2.Cluster {
 	have := make(map[string]bool)
 	out := make([]*v2.Cluster, 0, len(clusters))
-	for _, cluster := range clusters {
+	log.Infof("normalizeClusters ip: %v, len: %v", proxy.IPAddress, len(clusters))
+
+	for i, cluster := range clusters {
 		if !have[cluster.Name] {
 			out = append(out, cluster)
 		} else {
 			push.Add(model.DuplicatedClusters, cluster.Name, proxy,
 				fmt.Sprintf("Duplicate cluster %s found while pushing CDS", cluster.Name))
 		}
+		j, _ := json.Marshal(cluster)
+		log.Infof("normalizeClusters %v: %v", i, string(j))
 		have[cluster.Name] = true
 	}
 	return out
