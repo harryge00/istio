@@ -350,16 +350,17 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 	c.RLock()
 	defer c.RUnlock()
 	for _, pod := range c.podMap {
-		for _, ip := range pod.InstanceIPMap {
+		for id, ip := range pod.InstanceIPMap {
 			if ip == node.IPAddress {
 				// serviceMap -> hostName
 				out = append(out, getInstancesByIP(ip, pod)...)
+				log.Infof("Find instance %v has IP %v. out len: %v", id, ip, len(out))
 			}
 		}
-
 	}
+
 	arr := marshalServiceInstances(out)
-	log.Infof("GetProxyServiceInstances %v: %v", node, arr)
+	log.Infof("GetProxyServiceInstances %v: %v, result: %v", node, arr, out)
 
 	return out, nil
 }
