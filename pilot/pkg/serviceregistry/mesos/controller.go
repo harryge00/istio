@@ -240,7 +240,7 @@ func getInstancesOfPod(pod *PodInfo) []*model.ServiceInstance {
 			},
 		}
 		for _, svcPort := range portList {
-			for ip := range pod.InstanceIPMap {
+			for _, ip := range pod.InstanceIPMap {
 				for _, containerPort := range pod.PortMapping[svcPort.Port] {
 					out = append(out, &model.ServiceInstance{
 						Endpoint: model.NetworkEndpoint{
