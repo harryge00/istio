@@ -365,6 +365,14 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 	return out, nil
 }
 
+// Instances retrieves instances for a service and its ports that match
+// any of the supplied labels. All instances match an empty tag list.
+func (c *Controller) Instances(hostname model.Hostname, ports []string,
+	labels model.LabelsCollection) ([]*model.ServiceInstance, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED")
+}
+
+
 func getInstancesByIP(ip string, pod *PodInfo) []*model.ServiceInstance {
 	out := make([]*model.ServiceInstance, 0)
 
@@ -613,6 +621,8 @@ func (c *Controller) GetIstioServiceAccounts(hostname model.Hostname, ports []in
 	// Follow - https://goo.gl/Dt11Ct
 
 
-	return nil
+	return []string{
+		"spiffe://cluster.local/ns/default/sa/default",
+	}
 }
 
