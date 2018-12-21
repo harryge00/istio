@@ -62,7 +62,7 @@ GOARCH_LOCAL := $(LOCAL_ARCH)
 endif
 export GOARCH ?= $(GOARCH_LOCAL)
 
-LOCAL_OS := $(shell uname)
+LOCAL_OS := Linux
 ifeq ($(LOCAL_OS),Linux)
    export GOOS_LOCAL = linux
 else ifeq ($(LOCAL_OS),Darwin)
@@ -204,7 +204,7 @@ ${ISTIO_BIN}/have_go_$(GO_VERSION_REQUIRED):
 # Ensure expected GOPATH setup
 .PHONY: check-tree
 check-tree:
-	@if [ "$(ISTIO_GO)" != "$(GO_TOP)/src/istio.io/istio" ]; then \
+	@if [ "$(ISTIO_GO)" != "$(GO_TOP)src/istio.io/istio" ]; then \
 		echo Istio not found in GOPATH/src/istio.io. Make sure to clone Istio on that path. $(ISTIO_GO) not under $(GO_TOP) ; \
 		exit 1; fi
 
