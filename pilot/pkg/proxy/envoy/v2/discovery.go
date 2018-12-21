@@ -258,7 +258,7 @@ func (s *DiscoveryServer) Push(full bool, edsUpdates map[string]*model.EndpointS
 	t0 := time.Now()
 	push := model.NewPushContext()
 	push.ServiceAccounts = s.ServiceAccounts
-
+	adsLog.Infof("Pushing %v", edsUpdates)
 	if err := push.InitContext(s.Env); err != nil {
 		adsLog.Errorf("XDS: failed to update services %v", err)
 		// We can't push if we can't read the data - stick with previous version.

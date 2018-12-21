@@ -493,6 +493,9 @@ func (ps *PushContext) initVirtualServices(env *Environment) error {
 		for i, h := range rule.Hosts {
 			rule.Hosts[i] = ResolveShortnameToFQDN(h, r.ConfigMeta).String()
 		}
+		j, _ := json.Marshal(r)
+		log.Infof("initVirtualServices: %v", string(j))
+
 		// resolve gateways to bind to
 		for i, g := range rule.Gateways {
 			if g != IstioMeshGateway {
