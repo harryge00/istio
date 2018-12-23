@@ -15,6 +15,7 @@
 package v2
 
 import (
+	"encoding/json"
 	"fmt"
 
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
@@ -48,8 +49,21 @@ func (s *DiscoveryServer) pushRoute(con *XdsConnection, push *model.PushContext,
 	}
 	pushes.With(prometheus.Labels{"type": "rds"}).Add(1)
 
-	adsLog.Infof("ADS: RDS: PUSH for node: %s addr:%s routes:%d ver:%s", con.modelNode.ID, con.PeerAddr, len(rawRoutes), ver)
+	adsLog.Infof("ADS: RDS: PUSH for node: %s addr:%s routes:%v ver:%s", con.modelNode.ID, con.PeerAddr, len(rawRoutes), ver)
 	return nil
+}
+
+func marshalRoutes(route []*xdsapi.RouteConfiguration) []string {
+	out := make([]string, 0, len(route))
+	for i := range route {
+		j, err := json.Marshal(*route[i])
+		if err != nil {
+			adsLog.Error(err.Error())
+			continue
+		}
+		out = append(out, string(j))
+	}
+	return out
 }
 
 func (s *DiscoveryServer) generateRawRoutes(con *XdsConnection, push *model.PushContext) ([]*xdsapi.RouteConfiguration, error) {

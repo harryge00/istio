@@ -15,6 +15,7 @@
 package v2
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -396,6 +397,8 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 					adsLog.Warnf("ADS:NACK %v %s %v", peerAddr, con.ConID, discReq.String())
 				}
 			}
+			j, _ := json.Marshal(discReq)
+			adsLog.Infof("conID:%v, addr: %v, clusters:%v, routes: %v \n req: %v", con.ConID, con.PeerAddr, con.Clusters, con.Routes, string(j))
 			switch discReq.TypeUrl {
 			case ClusterType:
 				if con.CDSWatch {
@@ -434,7 +437,7 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 					continue
 				}
 				// too verbose - sent immediately after EDS response is received
-				adsLog.Debugf("ADS:LDS: REQ %s %v", con.ConID, peerAddr)
+				adsLog.Infof("ADS:LDS: REQ %s %v", con.ConID, peerAddr)
 				con.LDSWatch = true
 				err := s.pushLds(con, s.globalPushContext(), true, versionInfo())
 				if err != nil {
@@ -450,7 +453,7 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 						totalXDSRejects.Add(1)
 					}
 					// Not logging full request, can be very long.
-					adsLog.Debugf("ADS:RDS: ACK %s %s (%s) %s %s", peerAddr, con.ConID, con.modelNode, discReq.VersionInfo, discReq.ResponseNonce)
+					adsLog.Infof("ADS:RDS: ACK %s %s (%s) %s %s", peerAddr, con.ConID, con.modelNode, discReq.VersionInfo, discReq.ResponseNonce)
 					if len(con.Routes) > 0 {
 						// Already got a list of routes to watch and has same length as the request, this is an ack
 						if discReq.ErrorDetail == nil && discReq.ResponseNonce != "" {
@@ -462,7 +465,7 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 					}
 				}
 				con.Routes = routes
-				adsLog.Debugf("ADS:RDS: REQ %s %s  routes: %d", peerAddr, con.ConID, len(con.Routes))
+				adsLog.Infof("ADS:RDS: REQ %s %s  routes: %d", peerAddr, con.ConID, len(con.Routes))
 				err := s.pushRoute(con, s.globalPushContext(), versionInfo())
 				if err != nil {
 					return err
@@ -505,7 +508,7 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 				}
 
 				con.Clusters = clusters
-				adsLog.Debugf("ADS:EDS: REQ %s %s clusters: %d", peerAddr, con.ConID, len(con.Clusters))
+				adsLog.Infof("ADS:EDS: REQ %s %s clusters: %d", peerAddr, con.ConID, len(con.Clusters))
 				err := s.pushEds(s.globalPushContext(), con, true, nil)
 				if err != nil {
 					return err
@@ -523,8 +526,8 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 		case pushEv, _ := <-con.pushChannel:
 			// It is called when config changes.
 			// This is not optimized yet - we should detect what changed based on event and only
-			// push resources that need to be pushed.
-
+			// push resources that need to be pushed
+			adsLog.Infof("pushAll: %v", con.ConID)
 			err := s.pushAll(con, pushEv)
 			if err != nil {
 				return nil

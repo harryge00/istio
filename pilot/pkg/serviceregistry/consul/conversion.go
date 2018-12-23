@@ -66,6 +66,7 @@ func convertService(endpoints []*api.CatalogService) *model.Service {
 		name = endpoint.ServiceName
 
 		port := convertPort(endpoint.ServicePort, endpoint.NodeMeta[protocolTagName])
+		log.Infof("port: %v, %v, %v", port.Name, port.Protocol, port.Port)
 
 		if svcPort, exists := ports[port.Port]; exists && svcPort.Protocol != port.Protocol {
 			log.Warnf("Service %v has two instances on same port %v but different protocols (%v, %v)",

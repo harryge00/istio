@@ -111,7 +111,7 @@ func NewController(options ControllerOptions) (*Controller, error) {
 		podDeleteChan: podDelChan,
 	}
 
-	err = c.SyncPodmap()
+	err = c.initPodmap()
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func NewController(options ControllerOptions) (*Controller, error) {
 	return c, nil
 }
 
-func (c *Controller) SyncPodmap() error {
+func (c *Controller) initPodmap() error {
 	c.Lock()
 	defer c.Unlock()
 	pods, err := c.client.Pods()
@@ -409,6 +409,8 @@ func getInstancesByIP(ip string, pod *PodInfo) []*model.ServiceInstance {
 	return out
 }
 
+
+
 func (c *Controller) Run(stop <-chan struct{}) {
 	for {
 		select {
@@ -418,7 +420,7 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		case event := <-c.deploymentsChan:
 			var deployment *marathon.EventDeploymentSuccess
 			deployment = event.Event.(*marathon.EventDeploymentSuccess)
-			log.Infof("deployment success: %v", deployment.Plan)
+			log.Infof("deployment success: %v", deployment.Plan.Steps)
 			steps := deployment.Plan.Steps
 			if len(steps) == 0 {
 				log.Warnf("No steps: %v", deployment)
@@ -505,16 +507,21 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 					var protocol model.Protocol
 					// Mesos only support two kinds of protocols: tcp, udp.
 					// If the length of ep.Protocol is not 1, we choose tcp?
-					if len(ep.Protocol) == 1 {
-						protocol = model.ParseProtocol(ep.Protocol[0])
-					} else {
-						protocol = model.ProtocolTCP
-					}
+					//if len(ep.Protocol) == 1 {
+					//	protocol = model.ParseProtocol(ep.Protocol[0])
+					//} else {
+					//	protocol = model.ProtocolTCP
+					//}
+
+					// Use http by default
+					protocol = model.ProtocolHTTP
+
 					servicePorts = append(servicePorts, &model.Port{
 						Name: ep.Name,
 						Port: port,
 						Protocol: protocol,
 					})
+
 					podInfo.LBPorts[addr] = servicePorts
 
 					containerPorts := podInfo.PortMapping[port]

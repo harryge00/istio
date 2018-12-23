@@ -15,7 +15,6 @@
 package v1alpha3
 
 import (
-	"encoding/json"
 	"fmt"
 	"path"
 	"time"
@@ -99,10 +98,9 @@ func normalizeClusters(push *model.PushContext, proxy *model.Proxy, clusters []*
 				fmt.Sprintf("Duplicate cluster %s found while pushing CDS", cluster.Name))
 		}
 		have[cluster.Name] = true
-		j, _ := json.Marshal(cluster)
-		log.Infof("normalizeClusters %v: %v", i, string(j))
+		//j, _ := json.Marshal(cluster)
+		//log.Infof("normalizeClusters %v: %v", i, string(j))
 	}
-	log.Infof("PushContext: %v", push.ProxyStatus)
 	return out
 }
 
