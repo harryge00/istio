@@ -70,7 +70,8 @@ type Controller struct {
 
 	client marathon.Marathon
 	eventChan marathon.EventsChannel
-	deploymentsChan marathon.EventsChannel
+	depSuccessChan marathon.EventsChannel
+	depInfoChan marathon.EventsChannel
 	podDeleteChan marathon.EventsChannel
 }
 
@@ -89,26 +90,31 @@ func NewController(options ControllerOptions) (*Controller, error) {
 	}
 
 	// Register for events
-	events, err := client.AddEventsListener(marathon.EventIDApplications)
+	//events, err := client.AddEventsListener(marathon.EventIDApplications)
+	//if err != nil {
+	//	return nil, err
+	//}
+	depChan, err := client.AddEventsListener(marathon.EventIDDeploymentSuccess)
 	if err != nil {
 		return nil, err
 	}
-	deployments, err := client.AddEventsListener(marathon.EventIDDeploymentSuccess)
+	depInfoChan, err := client.AddEventsListener(marathon.EventIDDeploymentInfo)
 	if err != nil {
 		return nil, err
 	}
-	podDelChan, err := client.AddEventsListener(marathon.EventIdPodDeleted)
-	if err != nil {
-		return nil, err
-	}
+	//podDelChan, err := client.AddEventsListener(marathon.EventIdPodDeleted)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 
 	c := &Controller{
 		client: client,
 		podMap:  make(map[string]*PodInfo),
-		eventChan: events,
-		deploymentsChan: deployments,
-		podDeleteChan: podDelChan,
+		//eventChan: events,
+		depSuccessChan: depChan,
+		depInfoChan: depInfoChan,
+		//podDeleteChan: podDelChan,
 	}
 
 	err = c.initPodmap()
@@ -277,9 +283,9 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 	instances := []*model.ServiceInstance{}
 
 	c.RLock()
-	for name, pod := range c.podMap {
+	for _, pod := range c.podMap {
 		if portMatch(pod.LBPorts[lbName], port) && labels.HasSubsetOf(pod.Labels) {
-			log.Infof("port matched: %v : %v", name, port)
+			//log.Infof("port matched: %v : %v", name, port)
 			instances = append(instances, getInstancesOfPod(pod)...)
 		}
 	}
@@ -416,8 +422,21 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		select {
 		case <- stop:
 			log.Info("Exiting the loop")
+		case event := <-c.depInfoChan:
+			var depInfo *marathon.EventDeploymentInfo
+			depInfo = event.Event.(*marathon.EventDeploymentInfo)
+			log.Infof("deployment info: %v", depInfo.Plan.Steps)
+			if len(depInfo.Plan.Steps) > 0 && len(depInfo.Plan.Steps[0].Actions) > 0 &&
+				depInfo.Plan.Steps[0].Actions[0].Action == "StopPod" {
+				pod := depInfo.Plan.Steps[0].Actions[0].Pod
+				log.Infof("stoppod: %v", pod)
+				c.Lock()
+				delete(c.podMap, pod)
+				log.Infof("podMap: %v", c.podMap)
+				c.Unlock()
+			}
 
-		case event := <-c.deploymentsChan:
+		case event := <-c.depSuccessChan:
 			var deployment *marathon.EventDeploymentSuccess
 			deployment = event.Event.(*marathon.EventDeploymentSuccess)
 			log.Infof("deployment success: %v", deployment.Plan.Steps)
@@ -430,11 +449,12 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			if len(actions) > 0 && actions[0].Pod != "" {
 				switch actions[0].Action {
 				case "StopPod":
-					log.Infof("stoppod: %v", actions[0].Pod)
-					c.Lock()
-					delete(c.podMap, actions[0].Pod)
-					log.Infof("podMap: %v", c.podMap)
-					c.Unlock()
+					log.Infof("stoppod: %v. Pod should have been deleted. Skip", actions[0].Pod)
+					continue
+					//c.Lock()
+					//delete(c.podMap, actions[0].Pod)
+					//log.Infof("podMap: %v", c.podMap)
+					//c.Unlock()
 				default:
 					pod := actions[0].Pod
 					podStatus, err := c.client.PodStatus(pod)
@@ -452,7 +472,7 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		}
 	}
 
-	c.client.RemoveEventsListener(c.deploymentsChan)
+	c.client.RemoveEventsListener(c.depSuccessChan)
 	//c.client.RemoveEventsListener(c.eventChan)
 	//c.client.RemoveEventsListener(c.podDeleteChan)
 }

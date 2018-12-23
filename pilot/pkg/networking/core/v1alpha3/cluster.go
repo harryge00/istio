@@ -90,7 +90,7 @@ func (configgen *ConfigGeneratorImpl) BuildClusters(env *model.Environment, prox
 func normalizeClusters(push *model.PushContext, proxy *model.Proxy, clusters []*v2.Cluster) []*v2.Cluster {
 	have := make(map[string]bool)
 	out := make([]*v2.Cluster, 0, len(clusters))
-	for i, cluster := range clusters {
+	for _, cluster := range clusters {
 		if !have[cluster.Name] {
 			out = append(out, cluster)
 		} else {
