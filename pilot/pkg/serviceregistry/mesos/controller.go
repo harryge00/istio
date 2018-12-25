@@ -425,11 +425,10 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		case event := <-c.depInfoChan:
 			var depInfo *marathon.EventDeploymentInfo
 			depInfo = event.Event.(*marathon.EventDeploymentInfo)
-			log.Infof("deployment info: %v", depInfo.Plan.Steps)
 			if len(depInfo.Plan.Steps) > 0 && len(depInfo.Plan.Steps[0].Actions) > 0 &&
 				depInfo.Plan.Steps[0].Actions[0].Action == "StopPod" {
 				pod := depInfo.Plan.Steps[0].Actions[0].Pod
-				log.Infof("stoppod: %v", pod)
+				log.Infof("Stop Pod: %v", pod)
 				c.Lock()
 				delete(c.podMap, pod)
 				log.Infof("podMap: %v", c.podMap)
@@ -439,7 +438,6 @@ func (c *Controller) Run(stop <-chan struct{}) {
 		case event := <-c.depSuccessChan:
 			var deployment *marathon.EventDeploymentSuccess
 			deployment = event.Event.(*marathon.EventDeploymentSuccess)
-			log.Infof("deployment success: %v", deployment.Plan.Steps)
 			steps := deployment.Plan.Steps
 			if len(steps) == 0 {
 				log.Warnf("No steps: %v", deployment)
@@ -447,6 +445,7 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			}
 			actions := steps[0].Actions
 			if len(actions) > 0 && actions[0].Pod != "" {
+				log.Infof("deployment success: %v", actions)
 				switch actions[0].Action {
 				case "StopPod":
 					log.Infof("stoppod: %v. Pod should have been deleted. Skip", actions[0].Pod)
