@@ -113,6 +113,8 @@ var (
 					role.ID = os.Getenv("POD_NAME") + "." + os.Getenv("POD_NAMESPACE")
 				} else if registry == serviceregistry.ConsulRegistry {
 					role.ID = role.IPAddress + ".service.consul"
+				} else if registry == serviceregistry.MesosRegistry {
+					role.ID = os.Getenv("MESOS_TASK_ID")
 				} else {
 					role.ID = role.IPAddress
 				}
@@ -124,6 +126,8 @@ var (
 					pilotDomain = "cluster.local"
 				} else if registry == serviceregistry.ConsulRegistry {
 					role.Domain = "service.consul"
+				} else if registry == serviceregistry.MesosRegistry {
+					role.Domain = "marathon.l4lb.thisdcos.directory"
 				} else {
 					role.Domain = ""
 				}
@@ -305,9 +309,9 @@ func timeDuration(dur *duration.Duration) time.Duration {
 func init() {
 	proxyCmd.PersistentFlags().StringVar((*string)(&registry), "serviceregistry",
 		string(serviceregistry.KubernetesRegistry),
-		fmt.Sprintf("Select the platform for service registry, options are {%s, %s, %s, %s, %s}",
+		fmt.Sprintf("Select the platform for service registry, options are {%s, %s, %s, %s, %s, %s}",
 			serviceregistry.KubernetesRegistry, serviceregistry.ConsulRegistry,
-			serviceregistry.CloudFoundryRegistry, serviceregistry.MockRegistry, serviceregistry.ConfigRegistry))
+			serviceregistry.CloudFoundryRegistry, serviceregistry.MockRegistry, serviceregistry.ConfigRegistry, serviceregistry.MesosRegistry))
 	proxyCmd.PersistentFlags().StringVar(&role.IPAddress, "ip", "",
 		"Proxy IP address. If not provided uses ${INSTANCE_IP} environment variable.")
 	proxyCmd.PersistentFlags().StringVar(&role.ID, "id", "",
