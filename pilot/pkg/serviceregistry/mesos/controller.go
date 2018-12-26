@@ -16,18 +16,14 @@ package mesos
 
 import (
 	"encoding/json"
-	"strconv"
-	"strings"
-	"time"
-
 	"github.com/gambol99/go-marathon"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/log"
+	"strconv"
+	"strings"
 	"sync"
 
-
 	"fmt"
-	"github.com/mesos/go-proto/mesos/v1"
 	"sort"
 )
 
@@ -497,7 +493,8 @@ type PodInfo struct {
 func parseVIP(s string) (addr string, port int, err error) {
 	arr := strings.Split(s[1:], ":")
 	if len(arr) == 2 {
-		addr = arr[0]
+		//addr = arr[0]
+		addr = strings.Split(arr[0], "-")[0]
 		port, err = strconv.Atoi(arr[1])
 	} else {
 		err = fmt.Errorf("Illegal vip label: %v", s)
@@ -521,6 +518,7 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 						log.Errorf("parseVIP %v: %v", v, err)
 						continue
 					}
+					log.Infof("parseVIP: %v %v", addr, port)
 					servicePorts := podInfo.LBPorts[addr]
 					var protocol model.Protocol
 					// Mesos only support two kinds of protocols: tcp, udp.
@@ -577,50 +575,6 @@ func parseHostname(hostname model.Hostname) (name string, err error) {
 
 func serviceHostname(name *string) model.Hostname {
 	return model.Hostname(fmt.Sprintf("%s.%s", *name, DomainSuffix))
-}
-
-func convertTask(task *mesos_v1.Task) *model.Service {
-	if task == nil || task.Discovery == nil {
-		log.Errorf("Illegal Task: %v", task)
-		return nil
-	}
-
-	meshExternal := false
-	resolution := model.ClientSideLB
-
-	var ports model.PortList
-	if task.Discovery.Ports != nil {
-		ports = make(model.PortList, len(task.Discovery.Ports.Ports))
-		for i, port := range task.Discovery.Ports.Ports {
-			ports[i] = &model.Port{
-				Name: *port.Name,
-				Port: int(*port.Number),
-				Protocol: model.Protocol(*port.Protocol),
-			}
-		}
-	} else {
-		log.Errorf("Illegal Task Port: %v", task.Discovery)
-	}
-
-	svcPorts := make(model.PortList, 0, len(ports))
-	for _, port := range ports {
-		svcPorts = append(svcPorts, port)
-	}
-
-	hostname := serviceHostname(task.Name)
-	out := &model.Service{
-		Hostname:     hostname,
-		Address:      "0.0.0.0",
-		Ports:        ports,
-		MeshExternal: meshExternal,
-		Resolution:   resolution,
-		Attributes: model.ServiceAttributes{
-			Name:      string(hostname),
-			Namespace: model.IstioDefaultConfigNamespace,
-		},
-	}
-
-	return out
 }
 
 // AppendServiceHandler implements a service catalog operation
