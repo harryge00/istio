@@ -114,7 +114,11 @@ var (
 				} else if registry == serviceregistry.ConsulRegistry {
 					role.ID = role.IPAddress + ".service.consul"
 				} else if registry == serviceregistry.MesosRegistry {
-					role.ID = os.Getenv("MESOS_TASK_ID")
+					taskID := os.Getenv("MESOS_TASK_ID")
+					if lastIndex := strings.LastIndex(taskID, "."); lastIndex > 0 {
+						taskID = taskID[0:lastIndex]
+					}
+					role.ID = taskID
 				} else {
 					role.ID = role.IPAddress
 				}
