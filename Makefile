@@ -62,7 +62,7 @@ GOARCH_LOCAL := $(LOCAL_ARCH)
 endif
 export GOARCH ?= $(GOARCH_LOCAL)
 
-LOCAL_OS := $(shell uname)
+LOCAL_OS := Linux
 ifeq ($(LOCAL_OS),Linux)
    export GOOS_LOCAL = linux
 else ifeq ($(LOCAL_OS),Darwin)

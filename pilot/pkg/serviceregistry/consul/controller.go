@@ -155,10 +155,12 @@ func portMatch(instance *model.ServiceInstance, port int) bool {
 
 // GetProxyServiceInstances lists service instances co-located with a given proxy
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
+	log.Infof("IP:%v cid: %v domain:%v id:%v %v %v", node.IPAddress, node.ClusterID, node.Domain, node.ID, node.Metadata, node.Type)
 	data, err := c.getServices()
 	if err != nil {
 		return nil, err
 	}
+
 	out := make([]*model.ServiceInstance, 0)
 	for svcName := range data {
 		endpoints, err := c.getCatalogService(svcName, nil)
