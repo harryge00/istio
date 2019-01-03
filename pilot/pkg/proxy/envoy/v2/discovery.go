@@ -247,6 +247,7 @@ func (s *DiscoveryServer) Push(full bool, edsUpdates map[string]*model.EndpointS
 		go s.AdsPushAll(version, s.globalPushContext(), false, edsUpdates)
 		return
 	}
+	adsLog.Infof("Push!!!")
 	// Reset the status during the push.
 	//afterPush := true
 	pc := s.globalPushContext()
@@ -282,7 +283,7 @@ func (s *DiscoveryServer) Push(full bool, edsUpdates map[string]*model.EndpointS
 	versionLocal := time.Now().Format(time.RFC3339) + "/" + strconv.Itoa(versionNum)
 	versionNum++
 	initContextTime := time.Since(t0)
-	adsLog.Debugf("InitContext %v for push took %s", versionLocal, initContextTime)
+	adsLog.Infof("InitContext %v for push took %s", versionLocal, initContextTime)
 	s.mutex.Unlock()
 
 	// TODO: propagate K8S version and use it instead

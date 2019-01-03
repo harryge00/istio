@@ -21,6 +21,7 @@ import (
 	"istio.io/istio/pkg/log"
 	"strings"
 	"sync"
+	"time"
 
 	"fmt"
 	"sort"
@@ -50,6 +51,7 @@ type ControllerOptions struct {
 	Master            string
 	HTTPBasicAuthUser string
 	HTTPBasicPassword string
+	Interval time.Duration
 }
 
 // Controller communicates with Marathon and monitors for changes
@@ -59,9 +61,13 @@ type Controller struct {
 	// podMap stores podName ==> podInfo
 	podMap map[string]*PodInfo
 
+	syncPeriod time.Duration
+
 	client           marathon.Marathon
 	depInfoChan      marathon.EventsChannel
 	statusUpdateChan marathon.EventsChannel
+	serviceHandler 	func(*model.Service, model.Event)
+	instanceHandler 	func(*model.ServiceInstance, model.Event)
 }
 
 // NewController creates a new Consul controller
@@ -98,6 +104,7 @@ func NewController(options ControllerOptions) (*Controller, error) {
 		podMap:           make(map[string]*PodInfo),
 		depInfoChan:      depInfoChan,
 		statusUpdateChan: statusUpdateChan,
+		syncPeriod: options.Interval,
 	}
 
 	// TODO: support using other domains
@@ -423,8 +430,14 @@ deployment_info RestartPod -> status_update_event (TASK_RUNNING/TASK_KILLED)
 
 */
 func (c *Controller) Run(stop <-chan struct{}) {
+	ticker := time.NewTicker(c.syncPeriod)
+	var event model.Event
+
 	for {
 		select {
+		case <- ticker.C:
+			c.instanceHandler(nil, event)
+			c.serviceHandler(nil, event)
 		case <-stop:
 			log.Info("Exiting the loop")
 		case event := <-c.depInfoChan:
@@ -708,14 +721,14 @@ func serviceHostname(name *string) model.Hostname {
 // AppendServiceHandler implements a service catalog operation
 func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) error {
 	log.Info("AppendServiceHandler ")
-
+	c.serviceHandler = f
 	return nil
 }
 
 // AppendInstanceHandler implements a service catalog operation
 func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.Event)) error {
 	log.Info("AppendInstanceHandler ")
-
+	c.instanceHandler = f
 	return nil
 }
 

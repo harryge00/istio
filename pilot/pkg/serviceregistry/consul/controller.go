@@ -221,6 +221,8 @@ func (c *Controller) Run(stop <-chan struct{}) {
 // AppendServiceHandler implements a service catalog operation
 func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) error {
 	c.monitor.AppendServiceHandler(func(instances []*api.CatalogService, event model.Event) error {
+		log.Infof("AppendServiceHandler %v", instances)
+
 		f(convertService(instances), event)
 		return nil
 	})
@@ -230,6 +232,7 @@ func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) e
 // AppendInstanceHandler implements a service catalog operation
 func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.Event)) error {
 	c.monitor.AppendInstanceHandler(func(instance *api.CatalogService, event model.Event) error {
+		log.Infof("AppendInstanceHandler %v", instance)
 		f(convertInstance(instance), event)
 		return nil
 	})
