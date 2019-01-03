@@ -167,6 +167,7 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 			if errs != nil {
 				log.Warnf("GetService() found match but encountered an error: %v", errs)
 			}
+			log.Infof("GetService %v", hostname)
 			return service, nil
 		}
 

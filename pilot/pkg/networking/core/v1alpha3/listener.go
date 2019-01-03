@@ -128,6 +128,8 @@ func (configgen *ConfigGeneratorImpl) buildSidecarListeners(env *model.Environme
 	if err != nil {
 		return nil, err
 	}
+	marshalled := model.MarshalServiceInstances(proxyInstances)
+	log.Infof("BuildListeners: %v", marshalled)
 
 	services := push.Services
 

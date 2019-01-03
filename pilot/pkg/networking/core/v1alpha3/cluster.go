@@ -73,6 +73,8 @@ func (configgen *ConfigGeneratorImpl) BuildClusters(env *model.Environment, prox
 			log.Errorf("failed to get service proxy service instances: %v", err)
 			return nil, err
 		}
+		marshalled := model.MarshalServiceInstances(instances)
+		log.Infof("BuildClusters: %v", marshalled)
 
 		managementPorts := env.ManagementPorts(proxy.IPAddress)
 		clusters = append(clusters, configgen.buildInboundClusters(env, proxy, push, instances, managementPorts)...)
@@ -180,6 +182,8 @@ func buildClusterHosts(env *model.Environment, service *model.Service, port int)
 		log.Errorf("failed to retrieve instances for %s: %v", service.Hostname, err)
 		return nil
 	}
+	marshalled := model.MarshalServiceInstances(instances)
+	log.Infof("buildClusterHosts: %v", marshalled)
 
 	hosts := make([]*core.Address, 0)
 	for _, instance := range instances {

@@ -16,6 +16,7 @@ package v1alpha3
 
 import (
 	"fmt"
+	"istio.io/istio/pkg/log"
 	"strconv"
 	"strings"
 
@@ -37,6 +38,8 @@ func (configgen *ConfigGeneratorImpl) BuildHTTPRoutes(env *model.Environment, no
 	if err != nil {
 		return nil, err
 	}
+	marshalled := model.MarshalServiceInstances(proxyInstances)
+	log.Infof("BuildHTTPRoutes: %v", marshalled)
 
 	services := push.Services
 

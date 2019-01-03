@@ -178,8 +178,8 @@ func (c *Controller) Services() ([]*model.Service, error) {
 	for _, v := range serviceMap {
 		out = append(out, v)
 	}
-	arr := marshalServices(out)
-	log.Infof("Services: %v", arr)
+	//arr := marshalServices(out)
+	//log.Infof("Services: %v", arr)
 	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
 	return out, nil
 }
@@ -230,8 +230,8 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 		}
 	}
 
-	j, _ := json.Marshal(*out)
-	log.Infof("GetService hostname %v: %v", hostname, string(j))
+	//j, _ := json.Marshal(*out)
+	//log.Infof("GetService hostname %v: %v", hostname, string(j))
 
 	return out, nil
 }
@@ -269,8 +269,8 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 		}
 	}
 	c.RUnlock()
-	arr := marshalServiceInstances(instances)
-	log.Infof("InstancesByPort hostname: %v, port: %v, labels: %v. out: %v", hostname, port, labels, arr)
+	//arr := marshalServiceInstances(instances)
+	//log.Infof("InstancesByPort hostname: %v, port: %v, labels: %v. out: %v", hostname, port, labels, arr)
 
 	return instances, nil
 }
@@ -330,7 +330,7 @@ func portMatch(portList model.PortList, servicePort int) bool {
 // GetProxyServiceInstances lists service instances co-located with a given proxy
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
 	out := make([]*model.ServiceInstance, 0)
-	log.Infof("GetProxyServiceInstances: %v %v", node.ID, node.Metadata)
+	//log.Infof("GetProxyServiceInstances: %v %v", node.ID, node.Metadata)
 	c.RLock()
 	defer c.RUnlock()
 	for _, pod := range c.podMap {
@@ -343,8 +343,8 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 		}
 	}
 
-	arr := marshalServiceInstances(out)
-	log.Infof("GetProxyServiceInstances %v: %v", node, arr)
+	//arr := marshalServiceInstances(out)
+	//log.Infof("GetProxyServiceInstances %v: %v", node, arr)
 
 	return out, nil
 }
@@ -383,7 +383,7 @@ func convertTaskInstance(podInfo *PodInfo, inst *TaskInstance) []*model.ServiceI
 			}
 			out = append(out, &model.ServiceInstance{
 				Endpoint: model.NetworkEndpoint{
-					Address:     inst.HostIP,
+					Address:     inst.IP,
 					Port:        containerPort,
 					ServicePort: &epPort,
 				},

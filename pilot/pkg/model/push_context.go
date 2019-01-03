@@ -460,6 +460,8 @@ func (ps *PushContext) initServiceRegistry(env *Environment) error {
 	if err != nil {
 		return err
 	}
+	arr := MarshalServices(services)
+	log.Infof("initServiceRegistry Services: %v", arr)
 	// Sort the services in order of creation.
 	ps.Services = sortServicesByCreationTime(services)
 	for _, s := range services {

@@ -49,6 +49,9 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(env *model.Environme
 		return nil, err
 	}
 
+	marshalled := model.MarshalServiceInstances(workloadInstances)
+	log.Infof("buildGatewayListeners: %v", marshalled)
+
 	var workloadLabels model.LabelsCollection
 	for _, w := range workloadInstances {
 		workloadLabels = append(workloadLabels, w.Labels)

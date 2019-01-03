@@ -168,3 +168,21 @@ func (ps *ProtoSchema) FromJSONMap(data interface{}) (proto.Message, error) {
 	}
 	return out, nil
 }
+
+func MarshalServices(svc []*Service) []string {
+	arr := make([]string, 0, len(svc))
+	for _, v := range svc {
+		j, _ := json.Marshal(*v)
+		arr = append(arr, string(j))
+	}
+	return arr
+}
+
+func MarshalServiceInstances(svc []*ServiceInstance) []string {
+	arr := make([]string, 0, len(svc))
+	for _, v := range svc {
+		j, _ := json.Marshal(*v)
+		arr = append(arr, string(j))
+	}
+	return arr
+}

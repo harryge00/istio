@@ -77,8 +77,8 @@ func (c *Controller) Services() ([]*model.Service, error) {
 		services = append(services, convertService(endpoints))
 	}
 
-	arr := marshalServices(services)
-	log.Infof("Services: %v", arr)
+	//arr := marshalServices(services)
+	//log.Infof("Services: %v", arr)
 
 	return services, nil
 }
@@ -99,8 +99,8 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 
 	out := convertService(endpoints)
 
-	j, _ := json.Marshal(out)
-	log.Infof("GetService hostname %v: %v", hostname, string(j))
+	//j, _ := json.Marshal(out)
+	//log.Infof("GetService hostname %v: %v", hostname, string(j))
 
 	return out, nil
 }
@@ -171,8 +171,8 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 			instances = append(instances, instance)
 		}
 	}
-	arr := marshalServiceInstances(instances)
-	log.Infof("InstancesByPort hostname: %v, port: %v, labels: %v. out: %v", hostname, port, labels, arr)
+	//arr := marshalServiceInstances(instances)
+	//log.Infof("InstancesByPort hostname: %v, port: %v, labels: %v. out: %v", hostname, port, labels, arr)
 
 	return instances, nil
 }
@@ -184,7 +184,7 @@ func portMatch(instance *model.ServiceInstance, port int) bool {
 
 // GetProxyServiceInstances lists service instances co-located with a given proxy
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
-	log.Infof("IP:%v cid: %v domain:%v id:%v %v %v", node.IPAddress, node.ClusterID, node.Domain, node.ID, node.Metadata, node.Type)
+	//log.Infof("IP:%v cid: %v domain:%v id:%v %v %v", node.IPAddress, node.ClusterID, node.Domain, node.ID, node.Metadata, node.Type)
 	data, err := c.getServices()
 	if err != nil {
 		return nil, err
@@ -207,8 +207,8 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 		}
 	}
 
-	arr := marshalServiceInstances(out)
-	log.Infof("GetProxyServiceInstances %v: %v", node, arr)
+	//arr := marshalServiceInstances(out)
+	//log.Infof("GetProxyServiceInstances %v: %v", node, arr)
 
 	return out, nil
 }
