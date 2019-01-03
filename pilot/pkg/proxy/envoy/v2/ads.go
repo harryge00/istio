@@ -363,6 +363,7 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 	reqChannel := make(chan *xdsapi.DiscoveryRequest, 1)
 	go receiveThread(con, reqChannel, &receiveError)
 
+	adsLog.Infof("StreamAggregatedResources: %v %v", con.ConID, con.Clusters)
 	for {
 		// Block until either a request is received or the ticker ticks
 		select {

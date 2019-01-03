@@ -15,6 +15,7 @@
 package consul
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -28,6 +29,24 @@ import (
 type Controller struct {
 	client  *api.Client
 	monitor Monitor
+}
+
+func marshalServices(svc []*model.Service) []string {
+	arr := make([]string, 0, len(svc))
+	for _, v := range svc {
+		j, _ := json.Marshal(*v)
+		arr = append(arr, string(j))
+	}
+	return arr
+}
+
+func marshalServiceInstances(svc []*model.ServiceInstance) []string {
+	arr := make([]string, 0, len(svc))
+	for _, v := range svc {
+		j, _ := json.Marshal(*v)
+		arr = append(arr, string(j))
+	}
+	return arr
 }
 
 // NewController creates a new Consul controller
@@ -58,6 +77,9 @@ func (c *Controller) Services() ([]*model.Service, error) {
 		services = append(services, convertService(endpoints))
 	}
 
+	arr := marshalServices(services)
+	log.Infof("Services: %v", arr)
+
 	return services, nil
 }
 
@@ -75,7 +97,12 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 		return nil, err
 	}
 
-	return convertService(endpoints), nil
+	out := convertService(endpoints)
+
+	j, _ := json.Marshal(out)
+	log.Infof("GetService hostname %v: %v", hostname, string(j))
+
+	return out, nil
 }
 
 func (c *Controller) getServices() (map[string][]string, error) {
@@ -144,6 +171,8 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 			instances = append(instances, instance)
 		}
 	}
+	arr := marshalServiceInstances(instances)
+	log.Infof("InstancesByPort hostname: %v, port: %v, labels: %v. out: %v", hostname, port, labels, arr)
 
 	return instances, nil
 }
@@ -177,6 +206,9 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 			}
 		}
 	}
+
+	arr := marshalServiceInstances(out)
+	log.Infof("GetProxyServiceInstances %v: %v", node, arr)
 
 	return out, nil
 }

@@ -308,7 +308,7 @@ func (s *DiscoveryServer) updateServiceShards(push *model.PushContext) error {
 				if port.Protocol == model.ProtocolUDP {
 					continue
 				}
-
+				adsLog.Infof("InstancesByPort reg %v", reg.Name)
 				// This loses track of grouping (shards)
 				epi, err := reg.InstancesByPort(svc.Hostname, port.Port, model.LabelsCollection{})
 				if err != nil {
@@ -372,11 +372,13 @@ func (s *DiscoveryServer) updateCluster(push *model.PushContext, clusterName str
 
 		// TODO: k8s adapter should use EdsUpdate. This would return non-k8s stuff, needs to
 		// be merged with k8s. This returns ServiceEntries.
+		adsLog.Infof("ServiceDiscovery.InstancesByPort %v", clusterName)
 		instances, err = edsCluster.discovery.Env.ServiceDiscovery.InstancesByPort(hostname, p, labels)
 		if len(instances) == 0 {
 			push.Add(model.ProxyStatusClusterNoInstances, clusterName, nil, "")
 			//adsLog.Infof("EDS: no instances %s (host=%s ports=%v labels=%v)", clusterName, hostname, p, labels)
 		}
+		adsLog.Infof("Done ServiceDiscovery.InstancesByPort %v", clusterName)
 		edsInstances.With(prometheus.Labels{"cluster": clusterName}).Set(float64(len(instances)))
 	}
 	if err != nil {
