@@ -505,7 +505,7 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 				}
 
 				con.Clusters = clusters
-				adsLog.Debugf("ADS:EDS: REQ %s %s clusters: %d", peerAddr, con.ConID, len(con.Clusters))
+				adsLog.Infof("ADS:EDS: REQ %s %s clusters: %d. %v", peerAddr, con.ConID, len(con.Clusters), clusters)
 				err := s.pushEds(s.globalPushContext(), con, true, nil)
 				if err != nil {
 					return err
