@@ -152,6 +152,10 @@ func init() {
 
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.Master, "mesosMaster", "",
 		"Address for the Mesos Master")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.HTTPBasicAuthUser, "marathonUser", "",
+		"HTTPBasicAuthUser for the Marathon")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.HTTPBasicPassword, "marathonPassword", "",
+		"HTTPBasicPassword for the Marathon")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.ContainerDomain, "mesosContainerDomain", "marathon.containerip.dcos.thisdcos.directory",
 		"FQDN Suffix of Container ip. Default 'marathon.containerip.dcos.thisdcos.directory'")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.VIPDomain, "mesosVIPDomain", "marathon.l4lb.thisdcos.directory",

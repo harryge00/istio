@@ -16,7 +16,7 @@ package mesos
 
 import (
 	"encoding/json"
-	"github.com/gambol99/go-marathon"
+	"github.com/harryge00/go-marathon"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/log"
 	"strings"
@@ -39,39 +39,29 @@ type MesosCall struct {
 }
 
 // ControllerOptions stores the configurable attributes of a Controller.
-type ControllerOptions struct
-{
+type ControllerOptions struct {
 	// FQDN Suffix of Container ip. Default "marathon.containerip.dcos.thisdcos.directory"
 	// For overlay network, IP like "9.0.x.x" will be used by dcos-net.
-	ContainerDomain    string
+	ContainerDomain string
 	// FQDN suffix for vip. Default ".marathon.l4lb.thisdcos.directory"
-	VIPDomain	string
+	VIPDomain string
 	// FQDN suffix for agent IP. Default "marathon.agentip.dcos.thisdcos.directory"
-	AgentDoamin string
-	Master string
+	AgentDoamin       string
+	Master            string
+	HTTPBasicAuthUser string
+	HTTPBasicPassword string
 }
 
-// Controller communicates with Consul and monitors for changes
+// Controller communicates with Marathon and monitors for changes
 type Controller struct {
+	// No need to lock now. Because we only use one for-loop to update podMap
 	sync.RWMutex
 	// podMap stores podName ==> podInfo
-	/*
-	/group/nginx-pod ->
-	{
-		front-service: [{9080, "tcp"}, {9001, "udp"}]
-		{
-			instance-abc-1: "9.0.0.1",
-			instance-abc-2: "9.0.0.2",
-		}
-	}
- 	*/
 	podMap map[string]*PodInfo
 
-	client marathon.Marathon
-	eventChan marathon.EventsChannel
-	depSuccessChan marathon.EventsChannel
-	depInfoChan marathon.EventsChannel
-	podDeleteChan marathon.EventsChannel
+	client           marathon.Marathon
+	depInfoChan      marathon.EventsChannel
+	statusUpdateChan marathon.EventsChannel
 }
 
 // NewController creates a new Consul controller
@@ -81,6 +71,10 @@ func NewController(options ControllerOptions) (*Controller, error) {
 	config := marathon.NewDefaultConfig()
 	config.URL = options.Master
 	config.EventsTransport = marathon.EventsTransportSSE
+	if options.HTTPBasicAuthUser != "" {
+		config.HTTPBasicAuthUser = options.HTTPBasicAuthUser
+		config.HTTPBasicPassword = options.HTTPBasicPassword
+	}
 	log.Infof("Creating a client, Marathon: %s", config.URL)
 
 	client, err := marathon.NewClient(config)
@@ -89,31 +83,21 @@ func NewController(options ControllerOptions) (*Controller, error) {
 	}
 
 	// Register for events
-	//events, err := client.AddEventsListener(marathon.EventIDApplications)
-	//if err != nil {
-	//	return nil, err
-	//}
-	depChan, err := client.AddEventsListener(marathon.EventIDDeploymentSuccess)
-	if err != nil {
-		return nil, err
-	}
+
 	depInfoChan, err := client.AddEventsListener(marathon.EventIDDeploymentInfo)
 	if err != nil {
 		return nil, err
 	}
-	//podDelChan, err := client.AddEventsListener(marathon.EventIdPodDeleted)
-	//if err != nil {
-	//	return nil, err
-	//}
-
+	statusUpdateChan, err := client.AddEventsListener(marathon.EventIDStatusUpdate)
+	if err != nil {
+		return nil, err
+	}
 
 	c := &Controller{
-		client: client,
-		podMap:  make(map[string]*PodInfo),
-		//eventChan: events,
-		depSuccessChan: depChan,
-		depInfoChan: depInfoChan,
-		//podDeleteChan: podDelChan,
+		client:           client,
+		podMap:           make(map[string]*PodInfo),
+		depInfoChan:      depInfoChan,
+		statusUpdateChan: statusUpdateChan,
 	}
 
 	// TODO: support using other domains
@@ -161,9 +145,9 @@ func (c *Controller) Services() ([]*model.Service, error) {
 			service := serviceMap[hostname]
 			if service == nil {
 				service = &model.Service{
-					Hostname:     hostname,
+					Hostname: hostname,
 					// TODO: use Marathon-LB address
-					Ports:	model.PortList{},
+					Ports:        model.PortList{},
 					Address:      "0.0.0.0",
 					MeshExternal: false,
 					Resolution:   model.ClientSideLB,
@@ -189,7 +173,6 @@ func (c *Controller) Services() ([]*model.Service, error) {
 	}
 	c.RUnlock()
 	log.Debugf("serviceMap: %v", serviceMap)
-
 
 	out := make([]*model.Service, 0, len(serviceMap))
 	for _, v := range serviceMap {
@@ -223,7 +206,7 @@ func marshalServiceInstances(svc []*model.ServiceInstance) []string {
 func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
 	out := &model.Service{
 		Hostname:     hostname,
-		Ports:	model.PortList{},
+		Ports:        model.PortList{},
 		Address:      "0.0.0.0",
 		MeshExternal: false,
 		Resolution:   model.ClientSideLB,
@@ -297,7 +280,7 @@ func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) [
 
 	for _, inst := range pod.InstanceMap {
 		service := model.Service{
-			Hostname:     *hostName,
+			Hostname: *hostName,
 			// TODO: use marathon-lb address
 			Address:      inst.HostIP,
 			Ports:        pod.PortList,
@@ -312,17 +295,17 @@ func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) [
 			if svcPort == reqSvcPort {
 				inst := model.ServiceInstance{
 					Endpoint: model.NetworkEndpoint{
-						Address:     inst.HostIP,
-						Port:        hostPort.Port,
+						Address: inst.HostIP,
+						Port:    hostPort.Port,
 						ServicePort: &model.Port{
-							Name: hostPort.Name,
+							Name:     hostPort.Name,
 							Protocol: hostPort.Protocol,
-							Port: svcPort,
+							Port:     svcPort,
 						},
 					},
 					//AvailabilityZone: "default",
 					Service: &service,
-					Labels: pod.Labels,
+					Labels:  pod.Labels,
 				}
 				out = append(out, &inst)
 			}
@@ -330,7 +313,6 @@ func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) [
 	}
 	return out
 }
-
 
 // returns true if an instance's port matches with any in the provided list
 func portMatch(portList model.PortList, servicePort int) bool {
@@ -374,7 +356,6 @@ func (c *Controller) Instances(hostname model.Hostname, ports []string,
 	return nil, fmt.Errorf("NOT IMPLEMENTED")
 }
 
-
 func convertTaskInstance(podInfo *PodInfo, inst *TaskInstance) []*model.ServiceInstance {
 	out := []*model.ServiceInstance{}
 
@@ -390,7 +371,6 @@ func convertTaskInstance(podInfo *PodInfo, inst *TaskInstance) []*model.ServiceI
 				Namespace: model.IstioDefaultConfigNamespace,
 			},
 		}
-
 
 		// Here svcPort is used of accessing services
 		// whereas hostPort is regarded as endpoints port
@@ -409,7 +389,7 @@ func convertTaskInstance(podInfo *PodInfo, inst *TaskInstance) []*model.ServiceI
 				},
 				//AvailabilityZone: "default",
 				Service: &service,
-				Labels: podInfo.Labels,
+				Labels:  podInfo.Labels,
 			})
 
 		}
@@ -417,91 +397,200 @@ func convertTaskInstance(podInfo *PodInfo, inst *TaskInstance) []*model.ServiceI
 	return out
 }
 
+/*
+
+State Machine:
+
+Create a Pod
+deployment_info StartPod (Create item in PodMap) -> status_update_event (get inst IP and hostPort) -> deployment_step_success ScalePod, check instance number
+
+Delete Pod
+deployment_info StopPod (removePod) -> status_update_event (TASK_KILLED)
+
+Scale Pod
+deployment_info ScalePod -> status_update_event (TASK_RUNNING/TASK_KILLED)
+
+Update Pod
+deployment_info RestartPod -> status_update_event (TASK_RUNNING/TASK_KILLED)
+
+*/
 func (c *Controller) Run(stop <-chan struct{}) {
 	for {
 		select {
-		case <- stop:
+		case <-stop:
 			log.Info("Exiting the loop")
 		case event := <-c.depInfoChan:
+			// deployment_info event
 			var depInfo *marathon.EventDeploymentInfo
 			depInfo = event.Event.(*marathon.EventDeploymentInfo)
-			if len(depInfo.Plan.Steps) > 0 && len(depInfo.Plan.Steps[0].Actions) > 0 &&
-				depInfo.Plan.Steps[0].Actions[0].Action == "StopPod" {
-				pod := depInfo.Plan.Steps[0].Actions[0].Pod
+			if len(depInfo.Plan.Steps) == 0 {
+				log.Warnf("Illegal depInfo: %v", depInfo)
+				continue
+			}
+			actions := depInfo.Plan.Steps[len(depInfo.Plan.Steps)-1].Actions
+			if len(actions) == 0 {
+				log.Warnf("Illegal depInfo: %v", depInfo)
+				continue
+			} else if actions[0].Pod == "" {
+				// Not a pod event, skip
+				continue
+			}
+
+			switch actions[0].Action {
+			// TODO: supports graceful shutdown
+			// Delete a pod from podMap
+			case "StopPod":
+				pod := actions[0].Pod
 				log.Infof("Stop Pod: %v", pod)
 				c.Lock()
 				delete(c.podMap, pod)
 				log.Infof("podMap: %v", c.podMap)
 				c.Unlock()
-			}
-
-		case event := <-c.depSuccessChan:
-			var deployment *marathon.EventDeploymentSuccess
-			deployment = event.Event.(*marathon.EventDeploymentSuccess)
-			steps := deployment.Plan.Steps
-			if len(steps) == 0 {
-				log.Warnf("No steps: %v", deployment)
-				continue
-			}
-			actions := steps[0].Actions
-			if len(actions) > 0 && actions[0].Pod != "" {
-				log.Infof("deployment success: %v", actions)
-				switch actions[0].Action {
-				case "StopPod":
-					log.Infof("stoppod: %v. Pod should have been deleted. Skip", actions[0].Pod)
-					continue
-					//c.Lock()
-					//delete(c.podMap, actions[0].Pod)
-					//log.Infof("podMap: %v", c.podMap)
-					//c.Unlock()
-				default:
-					pod := actions[0].Pod
-					podStatus, err := c.client.PodStatus(pod)
-					if err != nil {
-						log.Errorf("Failed to get pod %v status: %v", pod, err)
-						continue
-					}
-					podInfo := getPodInfo(podStatus)
-					if podInfo == nil {
-						continue
-					}
-					log.Infof("podInfo %v: %v", pod, podInfo)
+			case "StartPod":
+				// Add a new pod to podMap
+				podInfo := getPodFromDepInfo(depInfo.Plan.Target.Pods, actions[0].Pod)
+				if podInfo != nil {
 					c.Lock()
-					c.podMap[pod] = podInfo
+					c.podMap[actions[0].Pod] = podInfo
+					log.Infof("Add pod %v to podMap: %v", podInfo.HostNames, c.podMap)
 					c.Unlock()
 				}
+			case "RestartPod":
+				// Update a existing pod in podMap
+				podInfo := getPodFromDepInfo(depInfo.Plan.Target.Pods, actions[0].Pod)
+				if podInfo != nil {
+					c.Lock()
+					c.podMap[actions[0].Pod].Labels = podInfo.Labels
+					c.podMap[actions[0].Pod].HostNames = podInfo.HostNames
+					c.podMap[actions[0].Pod].PortList = podInfo.PortList
+					log.Infof("Update pod %v to podMap: %v", podInfo.HostNames, c.podMap)
+					c.Unlock()
+				}
+			case "ScalePod":
+				log.Infof("Scaling pod: %v", actions[0])
+			}
+
+		case event := <-c.statusUpdateChan:
+			// status_update_event
+			var statusUpdate *marathon.EventStatusUpdate
+			statusUpdate = event.Event.(*marathon.EventStatusUpdate)
+			taskID := statusUpdate.TaskID
+			lastIndex := strings.LastIndex(taskID, ".")
+			if lastIndex > 0 {
+				taskID = taskID[0:lastIndex]
+			}
+			switch statusUpdate.TaskStatus {
+			case "TASK_RUNNING":
+				if len(statusUpdate.Ports) == 0 {
+					// No need to update a port without hostPorts
+					continue
+				}
+				c.Lock()
+				podInfo := c.podMap[statusUpdate.AppID]
+				if podInfo == nil {
+					continue
+				}
+				if podInfo.InstanceMap == nil {
+					podInfo.InstanceMap = make(map[string]*TaskInstance)
+				}
+				task := TaskInstance{
+					HostIP: statusUpdate.Host,
+				}
+				if len(statusUpdate.IPAddresses) > 0 {
+					task.IP = statusUpdate.IPAddresses[0].IPAddress
+				}
+				podInfo.InstanceMap[taskID] = &task
+
+				if len(podInfo.PortList) < len(statusUpdate.Ports) {
+					log.Infof("Impossible case: status update: %v", statusUpdate)
+					continue
+				}
+				for i, port := range statusUpdate.Ports {
+					task.PortMapping[podInfo.PortList[i].Port] = &model.Port{
+						Protocol: podInfo.PortList[i].Protocol,
+						Name:     podInfo.PortList[i].Name,
+						Port:     port,
+					}
+				}
+				log.Infof("Added a task: %v", task)
+				c.Unlock()
+			case "TASK_KILLED":
+				c.Lock()
+				podInfo := c.podMap[statusUpdate.AppID]
+				if podInfo == nil {
+					continue
+				}
+				delete(podInfo.InstanceMap, taskID)
+				c.Unlock()
 			}
 		}
 	}
 
-	c.client.RemoveEventsListener(c.depSuccessChan)
-	//c.client.RemoveEventsListener(c.eventChan)
-	//c.client.RemoveEventsListener(c.podDeleteChan)
+	c.client.RemoveEventsListener(c.depInfoChan)
+	c.client.RemoveEventsListener(c.statusUpdateChan)
 }
 
-// Endpoint is like mesos endpoints.
-// Portmapping between service ports and container ports.
-type Endpoint struct {
-	ContainerPort	int
-	Name string
-	Protocol model.Protocol
-}
-
-// 80 /abc:8080 /abc:9191
-// 8181 /abc:8080 /def:8787
+// Abstract model for Marathon pods.
 type PodInfo struct {
+	// List of containerPorts.
+	// In Mesos, hostPort may be dynamically allocated. But containerPort is fixed.
+	// So applications use hostname:containerPort to communicate with each other.
 	PortList model.PortList
+	// Hostname is like "app.marathon.slave.mesos". It's got from a Pod's labels.
 	// A pod may have multiple hostnames
 	HostNames map[string]bool
+	// Map TaskName to its IP and portMapping.
 	InstanceMap map[string]*TaskInstance
+	// Labels from pod specs.
 	Labels map[string]string
 }
 
 // TaskInstance is abstract model for a task instance.
 type TaskInstance struct {
-	IP string
+	IP     string
 	HostIP string
+	// ContainerPort to HostPort mapping
 	PortMapping map[int]*model.Port
+}
+
+// Get PodInfo based on pod spec.
+// No task info for now.
+func getPodFromDepInfo(pods []*marathon.Pod, podName string) *PodInfo {
+	for _, pod := range pods {
+		if pod.ID == podName {
+			if pod.Labels[ISTIO_SERVICE_LABEL] == "" {
+				log.Infof("No need to process the pod: %v", pod)
+				return nil
+			}
+			return convertPod(pod)
+		}
+	}
+	return nil
+}
+
+func convertPod(pod *marathon.Pod) *PodInfo {
+	info := PodInfo{
+		Labels: pod.Labels,
+	}
+	for _, con := range pod.Containers {
+		// TODO: distinguish ports of different containers
+		for _, ep := range con.Endpoints {
+			port := model.Port{
+				Name:     ep.Name,
+				Protocol: convertProtocol(ep.Protocol),
+				Port:     ep.ContainerPort,
+			}
+			info.PortList = append(info.PortList, &port)
+		}
+	}
+	svcs := strings.Split(pod.Labels[ISTIO_SERVICE_LABEL], ",")
+	hostMap := make(map[string]bool)
+	for _, svc := range svcs {
+		hostName := fmt.Sprintf("%s.%s", svc, DomainSuffix)
+		hostMap[hostName] = true
+	}
+	info.HostNames = hostMap
+	return &info
 }
 
 func getPodInfo(status *marathon.PodStatus) *PodInfo {
@@ -517,18 +606,18 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 		hostMap[hostName] = true
 	}
 	podInfo := &PodInfo{
-		HostNames: hostMap,
+		HostNames:   hostMap,
 		InstanceMap: make(map[string]*TaskInstance),
-		Labels: status.Spec.Labels,
+		Labels:      status.Spec.Labels,
 	}
 	// A map of container ports
 	portMap := make(map[string]*model.Port)
 	for _, con := range status.Spec.Containers {
 		for _, ep := range con.Endpoints {
 			port := model.Port{
-				Name: ep.Name,
+				Name:     ep.Name,
 				Protocol: convertProtocol(ep.Protocol),
-				Port: ep.ContainerPort,
+				Port:     ep.ContainerPort,
 			}
 			portMap[ep.Name] = &port
 			podInfo.PortList = append(podInfo.PortList, &port)
@@ -540,7 +629,7 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 	for _, inst := range status.Instances {
 		taskInst := TaskInstance{
 			// TODO: make sure AgentHostName is a IP!
-			HostIP: inst.AgentHostname,
+			HostIP:      inst.AgentHostname,
 			PortMapping: make(map[int]*model.Port),
 		}
 		// Get container IP
@@ -554,8 +643,8 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 				containerPort := portMap[ep.Name]
 				// From container port to allocated hostPort.
 				taskInst.PortMapping[containerPort.Port] = &model.Port{
-					Name: ep.Name,
-					Port: ep.AllocatedHostPort,
+					Name:     ep.Name,
+					Port:     ep.AllocatedHostPort,
 					Protocol: containerPort.Protocol,
 				}
 			}
@@ -605,15 +694,13 @@ func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.
 // GetIstioServiceAccounts implements model.ServiceAccounts operation TODO
 func (c *Controller) GetIstioServiceAccounts(hostname model.Hostname, ports []string) []string {
 
-		// Need to get service account of service registered with consul
+	// Need to get service account of service registered with consul
 	// Currently Consul does not have service account or equivalent concept
 	// As a step-1, to enabling istio security in Consul, We assume all the services run in default service account
 	// This will allow all the consul services to do mTLS
 	// Follow - https://goo.gl/Dt11Ct
 
-
 	return []string{
 		"spiffe://cluster.local/ns/default/sa/default",
 	}
 }
-
