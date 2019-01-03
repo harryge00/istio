@@ -39,7 +39,7 @@ func (configgen *ConfigGeneratorImpl) BuildHTTPRoutes(env *model.Environment, no
 		return nil, err
 	}
 	marshalled := model.MarshalServiceInstances(proxyInstances)
-	log.Infof("BuildHTTPRoutes: %v", marshalled)
+	log.Infof("BuildHTTPRoutes %s: %v", routeName, marshalled)
 
 	services := push.Services
 

@@ -16,6 +16,7 @@ package v2
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 
@@ -315,8 +316,8 @@ func (s *DiscoveryServer) updateServiceShards(push *model.PushContext) error {
 					return err
 				}
 
-				marshalled := model.MarshalServiceInstances(epi)
-				adsLog.Infof("updateServiceShards: %v", marshalled)
+				//marshalled := model.MarshalServiceInstances(epi)
+				//adsLog.Infof("updateServiceShards: %v", marshalled)
 
 				for _, ep := range epi {
 					//shard := ep.AvailabilityZone
@@ -676,6 +677,8 @@ func (s *DiscoveryServer) pushEds(push *model.PushContext, con *XdsConnection,
 			}
 			l = loadAssignment(c)
 		}
+		resp, _ := json.Marshal(l)
+		adsLog.Infof("pushEds %v: %v", con.ConID, string(resp))
 		endpoints += len(l.Endpoints)
 		if len(l.Endpoints) == 0 {
 			emptyClusters++
@@ -696,14 +699,15 @@ func (s *DiscoveryServer) pushEds(push *model.PushContext, con *XdsConnection,
 		return err
 	}
 	pushes.With(prometheus.Labels{"type": "eds"}).Add(1)
+	//resp, _ := json.Marshal(response)
 
 	if full {
 		// TODO: switch back to debug
-		adsLog.Infof("EDS: PUSH for %s clusters %d endpoints %d empty %d",
-			con.ConID, len(con.Clusters), endpoints, emptyClusters)
+		adsLog.Infof("EDS: PUSH for %s clusters %d endpoints %d empty %v",
+			con.ConID, len(con.Clusters), endpoints, empty)
 	} else {
-		adsLog.Infof("EDS: INC PUSH for %s clusters %d endpoints %d empty %d",
-			con.ConID, len(con.Clusters), endpoints, emptyClusters)
+		adsLog.Infof("EDS: INC PUSH for %s clusters %d endpoints %d empty %v",
+			con.ConID, len(con.Clusters), endpoints, empty)
 	}
 	return nil
 }
