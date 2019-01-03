@@ -179,7 +179,7 @@ func (c *Controller) Services() ([]*model.Service, error) {
 		out = append(out, v)
 	}
 	arr := marshalServices(out)
-	log.Debugf("Services: %v", arr)
+	log.Infof("Services: %v", arr)
 	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
 	return out, nil
 }
@@ -231,7 +231,7 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 	}
 
 	j, _ := json.Marshal(*out)
-	log.Debugf("GetService hostname %v: %v", hostname, string(j))
+	log.Infof("GetService hostname %v: %v", hostname, string(j))
 
 	return out, nil
 }
@@ -270,7 +270,7 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 	}
 	c.RUnlock()
 	arr := marshalServiceInstances(instances)
-	log.Debugf("InstancesByPort hostname: %v, port: %v, labels: %v. out: %v", hostname, port, labels, arr)
+	log.Infof("InstancesByPort hostname: %v, port: %v, labels: %v. out: %v", hostname, port, labels, arr)
 
 	return instances, nil
 }
@@ -344,7 +344,7 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 	}
 
 	arr := marshalServiceInstances(out)
-	log.Debugf("GetProxyServiceInstances %v: %v", node, arr)
+	log.Infof("GetProxyServiceInstances %v: %v", node, arr)
 
 	return out, nil
 }
@@ -397,6 +397,14 @@ func convertTaskInstance(podInfo *PodInfo, inst *TaskInstance) []*model.ServiceI
 	return out
 }
 
+func printPodMap(podMap map[string]*PodInfo) {
+	log.Info("printPodMap")
+	for k := range podMap {
+		info := podMap[k]
+		val, _ := json.Marshal(info)
+		log.Infof("pod %v: %v", k, string(val))
+	}
+}
 /*
 
 State Machine:
@@ -423,11 +431,11 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			// deployment_info event
 			var depInfo *marathon.EventDeploymentInfo
 			depInfo = event.Event.(*marathon.EventDeploymentInfo)
-			if len(depInfo.Plan.Steps) == 0 {
+			if depInfo.CurrentStep == nil {
 				log.Warnf("Illegal depInfo: %v", depInfo)
 				continue
 			}
-			actions := depInfo.Plan.Steps[len(depInfo.Plan.Steps)-1].Actions
+			actions := depInfo.CurrentStep.Actions
 			if len(actions) == 0 {
 				log.Warnf("Illegal depInfo: %v", depInfo)
 				continue
@@ -452,7 +460,8 @@ func (c *Controller) Run(stop <-chan struct{}) {
 				if podInfo != nil {
 					c.Lock()
 					c.podMap[actions[0].Pod] = podInfo
-					log.Infof("Add pod %v to podMap: %v", podInfo.HostNames, c.podMap)
+					log.Infof("Add pod %v", podInfo.HostNames)
+					printPodMap(c.podMap)
 					c.Unlock()
 				}
 			case "RestartPod":
@@ -474,54 +483,16 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			// status_update_event
 			var statusUpdate *marathon.EventStatusUpdate
 			statusUpdate = event.Event.(*marathon.EventStatusUpdate)
-			taskID := statusUpdate.TaskID
-			lastIndex := strings.LastIndex(taskID, ".")
-			if lastIndex > 0 {
-				taskID = taskID[0:lastIndex]
-			}
+
 			switch statusUpdate.TaskStatus {
 			case "TASK_RUNNING":
 				if len(statusUpdate.Ports) == 0 {
 					// No need to update a port without hostPorts
 					continue
 				}
-				c.Lock()
-				podInfo := c.podMap[statusUpdate.AppID]
-				if podInfo == nil {
-					continue
-				}
-				if podInfo.InstanceMap == nil {
-					podInfo.InstanceMap = make(map[string]*TaskInstance)
-				}
-				task := TaskInstance{
-					HostIP: statusUpdate.Host,
-				}
-				if len(statusUpdate.IPAddresses) > 0 {
-					task.IP = statusUpdate.IPAddresses[0].IPAddress
-				}
-				podInfo.InstanceMap[taskID] = &task
-
-				if len(podInfo.PortList) < len(statusUpdate.Ports) {
-					log.Infof("Impossible case: status update: %v", statusUpdate)
-					continue
-				}
-				for i, port := range statusUpdate.Ports {
-					task.PortMapping[podInfo.PortList[i].Port] = &model.Port{
-						Protocol: podInfo.PortList[i].Protocol,
-						Name:     podInfo.PortList[i].Name,
-						Port:     port,
-					}
-				}
-				log.Infof("Added a task: %v", task)
-				c.Unlock()
+				c.addTaskToPod(statusUpdate)
 			case "TASK_KILLED":
-				c.Lock()
-				podInfo := c.podMap[statusUpdate.AppID]
-				if podInfo == nil {
-					continue
-				}
-				delete(podInfo.InstanceMap, taskID)
-				c.Unlock()
+				c.deleteTaskFromPod(statusUpdate)
 			}
 		}
 	}
@@ -530,27 +501,84 @@ func (c *Controller) Run(stop <-chan struct{}) {
 	c.client.RemoveEventsListener(c.statusUpdateChan)
 }
 
+func getTaskID(statusUpdate *marathon.EventStatusUpdate) string {
+	taskID := statusUpdate.TaskID
+	lastIndex := strings.LastIndex(taskID, ".")
+	if lastIndex > 0 {
+		taskID = taskID[0:lastIndex]
+	}
+	return taskID
+}
+
+func (c *Controller) deleteTaskFromPod(statusUpdate *marathon.EventStatusUpdate) {
+	taskID := getTaskID(statusUpdate)
+	c.Lock()
+	defer c.Unlock()
+	podInfo := c.podMap[statusUpdate.AppID]
+	if podInfo == nil {
+		return
+	}
+	delete(podInfo.InstanceMap, taskID)
+}
+
+func (c *Controller) addTaskToPod(statusUpdate *marathon.EventStatusUpdate) {
+	taskID := getTaskID(statusUpdate)
+	c.Lock()
+	defer c.Unlock()
+
+	podInfo := c.podMap[statusUpdate.AppID]
+	if podInfo == nil {
+		return
+	}
+	if podInfo.InstanceMap == nil {
+		podInfo.InstanceMap = make(map[string]*TaskInstance)
+	}
+	task := TaskInstance{
+		HostIP: statusUpdate.Host,
+	}
+	if len(statusUpdate.IPAddresses) > 0 {
+		task.IP = statusUpdate.IPAddresses[0].IPAddress
+	}
+	podInfo.InstanceMap[taskID] = &task
+
+	if len(podInfo.PortList) < len(statusUpdate.Ports) {
+		log.Infof("Impossible case: status update: %v", statusUpdate)
+		return
+	}
+	if task.PortMapping == nil {
+		task.PortMapping = make(map[int]*model.Port)
+	}
+	for i, port := range statusUpdate.Ports {
+		task.PortMapping[podInfo.PortList[i].Port] = &model.Port{
+			Protocol: podInfo.PortList[i].Protocol,
+			Name:     podInfo.PortList[i].Name,
+			Port:     port,
+		}
+	}
+	log.Infof("Added a task: %v", task)
+}
+
 // Abstract model for Marathon pods.
 type PodInfo struct {
 	// List of containerPorts.
 	// In Mesos, hostPort may be dynamically allocated. But containerPort is fixed.
 	// So applications use hostname:containerPort to communicate with each other.
-	PortList model.PortList
+	PortList model.PortList		`json:"portList"`
 	// Hostname is like "app.marathon.slave.mesos". It's got from a Pod's labels.
 	// A pod may have multiple hostnames
-	HostNames map[string]bool
+	HostNames map[string]bool	`json:"hostNames"`
 	// Map TaskName to its IP and portMapping.
-	InstanceMap map[string]*TaskInstance
+	InstanceMap map[string]*TaskInstance	`json:"instanceMap"`
 	// Labels from pod specs.
-	Labels map[string]string
+	Labels map[string]string	`json:"labels"`
 }
 
 // TaskInstance is abstract model for a task instance.
 type TaskInstance struct {
-	IP     string
-	HostIP string
+	IP     string	`json:"IP"`
+	HostIP string	`json:"hostIP"`
 	// ContainerPort to HostPort mapping
-	PortMapping map[int]*model.Port
+	PortMapping map[int]*model.Port	`json:"portMapping"`
 }
 
 // Get PodInfo based on pod spec.

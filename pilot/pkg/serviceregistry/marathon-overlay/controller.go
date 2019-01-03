@@ -39,12 +39,12 @@ type MesosCall struct {
 type ControllerOptions struct {
 	// FQDN Suffix of Container ip. Default "marathon.containerip.dcos.thisdcos.directory"
 	// For overlay network, IP like "9.0.x.x" will be used by dcos-net.
-	ContainerDomain    string
+	ContainerDomain string
 	// FQDN suffix for vip. Default ".marathon.l4lb.thisdcos.directory"
-	VIPDomain	string
+	VIPDomain string
 	// FQDN suffix for agent IP. Default "marathon.agentip.dcos.thisdcos.directory"
 	AgentDoamin string
-	Master string
+	Master      string
 }
 
 // Controller communicates with Consul and monitors for changes
@@ -52,22 +52,22 @@ type Controller struct {
 	sync.RWMutex
 	// podMap stores podName ==> podInfo
 	/*
-	/group/nginx-pod ->
-	{
-		front-service: [{9080, "tcp"}, {9001, "udp"}]
+		/group/nginx-pod ->
 		{
-			instance-abc-1: "9.0.0.1",
-			instance-abc-2: "9.0.0.2",
+			front-service: [{9080, "tcp"}, {9001, "udp"}]
+			{
+				instance-abc-1: "9.0.0.1",
+				instance-abc-2: "9.0.0.2",
+			}
 		}
-	}
- 	*/
+	*/
 	podMap map[string]*PodInfo
 
-	client marathon.Marathon
-	eventChan marathon.EventsChannel
+	client         marathon.Marathon
+	eventChan      marathon.EventsChannel
 	depSuccessChan marathon.EventsChannel
-	depInfoChan marathon.EventsChannel
-	podDeleteChan marathon.EventsChannel
+	depInfoChan    marathon.EventsChannel
+	podDeleteChan  marathon.EventsChannel
 }
 
 // NewController creates a new Consul controller
@@ -102,13 +102,12 @@ func NewController(options ControllerOptions) (*Controller, error) {
 	//	return nil, err
 	//}
 
-
 	c := &Controller{
 		client: client,
-		podMap:  make(map[string]*PodInfo),
+		podMap: make(map[string]*PodInfo),
 		//eventChan: events,
 		depSuccessChan: depChan,
-		depInfoChan: depInfoChan,
+		depInfoChan:    depInfoChan,
 		//podDeleteChan: podDelChan,
 	}
 
@@ -151,9 +150,9 @@ func (c *Controller) Services() ([]*model.Service, error) {
 			service := serviceMap[hostname]
 			if service == nil {
 				service = &model.Service{
-					Hostname:     hostname,
+					Hostname: hostname,
 					// TODO: use Marathon-LB address
-					Ports:	model.PortList{},
+					Ports:        model.PortList{},
 					Address:      "0.0.0.0",
 					MeshExternal: false,
 					Resolution:   model.ClientSideLB,
@@ -179,7 +178,6 @@ func (c *Controller) Services() ([]*model.Service, error) {
 	}
 	c.RUnlock()
 	log.Infof("serviceMap: %v", serviceMap)
-
 
 	out := make([]*model.Service, 0, len(serviceMap))
 	for _, v := range serviceMap {
@@ -219,7 +217,7 @@ func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error)
 
 	out := &model.Service{
 		Hostname:     hostname,
-		Ports:	model.PortList{},
+		Ports:        model.PortList{},
 		Address:      "0.0.0.0",
 		MeshExternal: false,
 		Resolution:   model.ClientSideLB,
@@ -299,7 +297,7 @@ func getInstancesOfPod(pod *PodInfo) []*model.ServiceInstance {
 		for _, svcPort := range portList {
 			for _, ip := range pod.InstanceIPMap {
 				service := model.Service{
-					Hostname:     hostName,
+					Hostname: hostName,
 					// TODO: use marathon-lb address
 					Address:      ip,
 					Ports:        portList,
@@ -318,8 +316,8 @@ func getInstancesOfPod(pod *PodInfo) []*model.ServiceInstance {
 							ServicePort: svcPort,
 						},
 						AvailabilityZone: "default",
-						Service: &service,
-						Labels: pod.Labels,
+						Service:          &service,
+						Labels:           pod.Labels,
 					}
 					out = append(out, &inst)
 
@@ -330,7 +328,6 @@ func getInstancesOfPod(pod *PodInfo) []*model.ServiceInstance {
 
 	return out
 }
-
 
 // returns true if an instance's port matches with any in the provided list
 func portMatch(portList model.PortList, servicePort int) bool {
@@ -373,14 +370,13 @@ func (c *Controller) Instances(hostname model.Hostname, ports []string,
 	return nil, fmt.Errorf("NOT IMPLEMENTED")
 }
 
-
 func getInstancesByIP(ip string, pod *PodInfo) []*model.ServiceInstance {
 	out := make([]*model.ServiceInstance, 0)
 
 	for lb, portList := range pod.LBPorts {
 		hostName := serviceHostname(&lb)
 		service := model.Service{
-			Hostname:     hostName,
+			Hostname: hostName,
 			// TODO: use marathon-lb address
 			Address:      "0.0.0.0",
 			Ports:        portList,
@@ -400,8 +396,8 @@ func getInstancesByIP(ip string, pod *PodInfo) []*model.ServiceInstance {
 						ServicePort: svcPort,
 					},
 					AvailabilityZone: "default",
-					Service: &service,
-					Labels: pod.Labels,
+					Service:          &service,
+					Labels:           pod.Labels,
 				})
 			}
 		}
@@ -410,12 +406,10 @@ func getInstancesByIP(ip string, pod *PodInfo) []*model.ServiceInstance {
 	return out
 }
 
-
-
 func (c *Controller) Run(stop <-chan struct{}) {
 	for {
 		select {
-		case <- stop:
+		case <-stop:
 			log.Info("Exiting the loop")
 		case event := <-c.depInfoChan:
 			var depInfo *marathon.EventDeploymentInfo
@@ -474,9 +468,9 @@ func (c *Controller) Run(stop <-chan struct{}) {
 // Endpoint is like mesos endpoints.
 // Portmapping between service ports and container ports.
 type Endpoint struct {
-	ContainerPort	int
-	Name string
-	Protocol model.Protocol
+	ContainerPort int
+	Name          string
+	Protocol      model.Protocol
 }
 
 // 80 /abc:8080 /abc:9191
@@ -486,9 +480,9 @@ type PodInfo struct {
 	// LBName to ServicePort
 	LBPorts map[string]model.PortList
 	// ServicePort to ContainerPort
-	PortMapping map[int]model.PortList
+	PortMapping   map[int]model.PortList
 	InstanceIPMap map[string]string
-	Labels map[string]string
+	Labels        map[string]string
 }
 
 func parseVIP(s string) (addr string, port int, err error) {
@@ -505,10 +499,10 @@ func parseVIP(s string) (addr string, port int, err error) {
 
 func getPodInfo(status *marathon.PodStatus) *PodInfo {
 	podInfo := &PodInfo{
-		LBPorts: make(map[string]model.PortList),
-		PortMapping: make(map[int]model.PortList),
+		LBPorts:       make(map[string]model.PortList),
+		PortMapping:   make(map[int]model.PortList),
 		InstanceIPMap: make(map[string]string),
-		Labels: status.Spec.Labels,
+		Labels:        status.Spec.Labels,
 	}
 	for _, con := range status.Spec.Containers {
 		for _, ep := range con.Endpoints {
@@ -534,8 +528,8 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 					protocol = model.ProtocolHTTP
 
 					servicePorts = append(servicePorts, &model.Port{
-						Name: ep.Name,
-						Port: port,
+						Name:     ep.Name,
+						Port:     port,
 						Protocol: protocol,
 					})
 
@@ -543,8 +537,8 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 
 					containerPorts := podInfo.PortMapping[port]
 					containerPorts = append(containerPorts, &model.Port{
-						Name: ep.Name,
-						Port: ep.ContainerPort,
+						Name:     ep.Name,
+						Port:     ep.ContainerPort,
 						Protocol: protocol,
 					})
 					podInfo.PortMapping[port] = containerPorts
@@ -595,15 +589,13 @@ func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.
 // GetIstioServiceAccounts implements model.ServiceAccounts operation TODO
 func (c *Controller) GetIstioServiceAccounts(hostname model.Hostname, ports []string) []string {
 
-		// Need to get service account of service registered with consul
+	// Need to get service account of service registered with consul
 	// Currently Consul does not have service account or equivalent concept
 	// As a step-1, to enabling istio security in Consul, We assume all the services run in default service account
 	// This will allow all the consul services to do mTLS
 	// Follow - https://goo.gl/Dt11Ct
 
-
 	return []string{
 		"spiffe://cluster.local/ns/default/sa/default",
 	}
 }
-

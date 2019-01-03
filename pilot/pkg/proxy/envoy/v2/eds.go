@@ -734,7 +734,7 @@ func (s *DiscoveryServer) getEdsCluster(clusterName string) *EdsCluster {
 func (s *DiscoveryServer) getOrAddEdsCluster(clusterName string) *EdsCluster {
 	edsClusterMutex.Lock()
 	defer edsClusterMutex.Unlock()
-
+	adsLog.Infof("getOrAddEdsCluster %v: %v", clusterName, s)
 	c := edsClusters[clusterName]
 	if c == nil {
 		c = &EdsCluster{discovery: s,
