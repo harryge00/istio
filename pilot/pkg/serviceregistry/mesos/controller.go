@@ -330,7 +330,7 @@ func portMatch(portList model.PortList, servicePort int) bool {
 // GetProxyServiceInstances lists service instances co-located with a given proxy
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
 	out := make([]*model.ServiceInstance, 0)
-	//log.Infof("GetProxyServiceInstances: %v", node)
+	log.Infof("GetProxyServiceInstances: %v %v", node.ID, node.Metadata)
 	c.RLock()
 	defer c.RUnlock()
 	for _, pod := range c.podMap {
@@ -374,17 +374,17 @@ func convertTaskInstance(podInfo *PodInfo, inst *TaskInstance) []*model.ServiceI
 
 		// Here svcPort is used of accessing services
 		// whereas hostPort is regarded as endpoints port
-		for svcPort, hostPort := range inst.PortMapping {
+		for containerPort, hostPort := range inst.PortMapping {
 			epPort := model.Port{
 				Name: hostPort.Name,
-				Port: svcPort,
+				Port: containerPort,
 				// TODO: Use other protocol
 				Protocol: hostPort.Protocol,
 			}
 			out = append(out, &model.ServiceInstance{
 				Endpoint: model.NetworkEndpoint{
-					Address:     inst.IP,
-					Port:        svcPort,
+					Address:     inst.HostIP,
+					Port:        containerPort,
 					ServicePort: &epPort,
 				},
 				//AvailabilityZone: "default",
