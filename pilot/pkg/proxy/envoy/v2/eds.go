@@ -316,8 +316,9 @@ func (s *DiscoveryServer) updateServiceShards(push *model.PushContext) error {
 					return err
 				}
 
-				//marshalled := model.MarshalServiceInstances(epi)
-				//adsLog.Infof("updateServiceShards: %v", marshalled)
+				marshalled := model.MarshalServiceInstances(epi)
+				adsLog.Infof("name: %v cid: %v updateServiceShards: %v", reg.Name, reg.ClusterID, marshalled)
+
 
 				for _, ep := range epi {
 					//shard := ep.AvailabilityZone
@@ -374,6 +375,14 @@ func (s *DiscoveryServer) updateCluster(push *model.PushContext, clusterName str
 
 		labels = push.SubsetToLabels(subsetName, hostname)
 
+		//for con := range edsCluster.EdsClients {
+		//	adsLog.Infof("cluster: %v EdsClients: %v", clusterName, con)
+		//}
+
+		//if push.Proxy != nil {
+		//	hostname = model.Hostname(fmt.Sprintf("%v_%s", hostname, push.Proxy.ID))
+		//}
+
 		// TODO: k8s adapter should use EdsUpdate. This would return non-k8s stuff, needs to
 		// be merged with k8s. This returns ServiceEntries.
 		instances, err = edsCluster.discovery.Env.ServiceDiscovery.InstancesByPort(hostname, p, labels)
@@ -383,7 +392,11 @@ func (s *DiscoveryServer) updateCluster(push *model.PushContext, clusterName str
 		}
 
 		marshalled := model.MarshalServiceInstances(instances)
-		adsLog.Infof("updateCluster: %v", marshalled)
+		if push.Proxy != nil {
+			adsLog.Infof("%v updateCluster: %v", push.Proxy.IPAddress, marshalled)
+		} else {
+			adsLog.Infof("updateCluster: %v", marshalled)
+		}
 
 		edsInstances.With(prometheus.Labels{"cluster": clusterName}).Set(float64(len(instances)))
 	}
@@ -650,6 +663,12 @@ func (s *DiscoveryServer) pushEds(push *model.PushContext, con *XdsConnection,
 
 	updated := []string{}
 
+	if push.Proxy != nil && push.Proxy != con.modelNode {
+		adsLog.Warnf("Unmatched proxy for %v %v", con.ConID, push.Proxy.ID)
+	} else if push.Proxy == nil {
+		push.Proxy = con.modelNode
+	}
+
 	for _, clusterName := range con.Clusters {
 		_, _, hostname, _ := model.ParseSubsetKey(clusterName)
 		if edsUpdatedServices != nil && edsUpdatedServices[string(hostname)] == nil {
@@ -668,8 +687,15 @@ func (s *DiscoveryServer) pushEds(push *model.PushContext, con *XdsConnection,
 			continue
 		}
 
+		//adsLog.Infof("one EdsClients: %v", c.EdsClients)
+
 		l := loadAssignment(c)
 		if l == nil { // fresh cluster
+			// Use proxy
+			// This is for Mesos registry.
+			//clusterNameWithConnection := fmt.Sprintf("%v_%v", clusterName, con.modelNode.ID)
+
+
 			if err := s.updateCluster(push, clusterName, c); err != nil {
 				adsLog.Errorf("error returned from updateCluster for cluster name %s, skipping it.", clusterName)
 				totalXDSInternalErrors.Add(1)
@@ -745,7 +771,7 @@ func (s *DiscoveryServer) getEdsCluster(clusterName string) *EdsCluster {
 func (s *DiscoveryServer) getOrAddEdsCluster(clusterName string) *EdsCluster {
 	edsClusterMutex.Lock()
 	defer edsClusterMutex.Unlock()
-	adsLog.Infof("getOrAddEdsCluster %v: %v", clusterName, s)
+	//adsLog.Infof("getOrAddEdsCluster %v: %v", clusterName, s)
 	c := edsClusters[clusterName]
 	if c == nil {
 		c = &EdsCluster{discovery: s,

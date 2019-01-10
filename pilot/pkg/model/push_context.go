@@ -89,6 +89,7 @@ type PushContext struct {
 	// the endpoint needs to be re-evaluated later (eventual consistency)
 	ServicePort2Name map[string]PortList `json:"-"`
 
+	Proxy *Proxy
 	initDone bool
 }
 

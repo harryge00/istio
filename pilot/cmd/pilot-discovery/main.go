@@ -160,7 +160,7 @@ func init() {
 		"FQDN Suffix of Container ip. Default 'marathon.containerip.dcos.thisdcos.directory'")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.VIPDomain, "mesosVIPDomain", "marathon.l4lb.thisdcos.directory",
 		"FQDN suffix for service ip with VIP label")
-	discoveryCmd.PersistentFlags().DurationVar(&serverArgs.Service.Mesos.Interval, "mesosSyncInterval", 5 * time.Second,
+	discoveryCmd.PersistentFlags().DurationVar(&serverArgs.Service.Mesos.Interval, "mesosSyncInterval", 2 * time.Second,
 		"Interval (in seconds) for polling the Mesos service registry")
 
 	// Attach the Istio logging options to the command.

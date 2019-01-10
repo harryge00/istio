@@ -269,6 +269,15 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 	name := string(hostname)
 	instances := []*model.ServiceInstance{}
 	c.RLock()
+
+	//var task *TaskInstance
+	arr := strings.Split(string(hostname), "_")
+	if len(arr) == 2 {
+		hostname = model.Hostname(arr[0])
+		taskID := arr[1]
+		//task = c.getTaskInstanceByID(taskID)
+		log.Infof("InstancesByPort %v %v", hostname, taskID)
+	}
 	for _, pod := range c.podMap {
 		if portMatch(pod.PortList, port) && pod.HostNames[name] && labels.HasSubsetOf(pod.Labels) {
 			//log.Infof("port matched: %v : %v", name, port)
@@ -281,6 +290,19 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 
 	return instances, nil
 }
+
+
+func (c *Controller) getTaskInstanceByID(id string) *TaskInstance {
+	for _, pod := range c.podMap {
+		for taskID := range pod.InstanceMap {
+			if id == taskID {
+				return pod.InstanceMap[taskID]
+			}
+		}
+	}
+	return nil
+}
+
 
 func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) []*model.ServiceInstance {
 	out := make([]*model.ServiceInstance, 0)
@@ -300,7 +322,8 @@ func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) [
 		}
 		for svcPort, hostPort := range inst.PortMapping {
 			if svcPort == reqSvcPort {
-				inst := model.ServiceInstance{
+				// hostPortInst is using hostIP:hostPort
+				hostPortInst := model.ServiceInstance{
 					Endpoint: model.NetworkEndpoint{
 						Address: inst.HostIP,
 						Port:    hostPort.Port,
@@ -314,7 +337,24 @@ func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) [
 					Service: &service,
 					Labels:  pod.Labels,
 				}
-				out = append(out, &inst)
+				out = append(out, &hostPortInst)
+
+				//// containerInst is using containerIP:containerPort
+				//containerInst := model.ServiceInstance{
+				//	Endpoint: model.NetworkEndpoint{
+				//		Address: inst.IP,
+				//		Port:    svcPort,
+				//		ServicePort: &model.Port{
+				//			Name:     hostPort.Name,
+				//			Protocol: hostPort.Protocol,
+				//			Port:     svcPort,
+				//		},
+				//	},
+				//	//AvailabilityZone: "default",
+				//	Service: &service,
+				//	Labels:  pod.Labels,
+				//}
+				//out = append(out, &containerInst)
 			}
 		}
 	}
@@ -500,7 +540,8 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			switch statusUpdate.TaskStatus {
 			case "TASK_RUNNING":
 				if len(statusUpdate.Ports) == 0 {
-					// No need to update a port without hostPorts
+					// No need to update a task without hostPorts
+					// Like a proxy
 					continue
 				}
 				c.addTaskToPod(statusUpdate)
@@ -514,6 +555,9 @@ func (c *Controller) Run(stop <-chan struct{}) {
 	c.client.RemoveEventsListener(c.statusUpdateChan)
 }
 
+// Trim the suffix after the last "."
+// statusUpdate.TaskID: reviews.instance-34a9e7c1-1406-11e9-8921-02423471df7c.proxy
+// return reviews.instance-34a9e7c1-1406-11e9-8921-02423471df7c
 func getTaskID(statusUpdate *marathon.EventStatusUpdate) string {
 	taskID := statusUpdate.TaskID
 	lastIndex := strings.LastIndex(taskID, ".")
@@ -535,6 +579,7 @@ func (c *Controller) deleteTaskFromPod(statusUpdate *marathon.EventStatusUpdate)
 }
 
 func (c *Controller) addTaskToPod(statusUpdate *marathon.EventStatusUpdate) {
+	// Trim suffix
 	taskID := getTaskID(statusUpdate)
 	c.Lock()
 	defer c.Unlock()
@@ -588,6 +633,7 @@ type PodInfo struct {
 
 // TaskInstance is abstract model for a task instance.
 type TaskInstance struct {
+	// IP is containerIP
 	IP     string	`json:"IP"`
 	HostIP string	`json:"hostIP"`
 	// ContainerPort to HostPort mapping
