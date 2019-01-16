@@ -339,22 +339,22 @@ func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) [
 				}
 				out = append(out, &hostPortInst)
 
-				//// containerInst is using containerIP:containerPort
-				//containerInst := model.ServiceInstance{
-				//	Endpoint: model.NetworkEndpoint{
-				//		Address: inst.IP,
-				//		Port:    svcPort,
-				//		ServicePort: &model.Port{
-				//			Name:     hostPort.Name,
-				//			Protocol: hostPort.Protocol,
-				//			Port:     svcPort,
-				//		},
-				//	},
-				//	//AvailabilityZone: "default",
-				//	Service: &service,
-				//	Labels:  pod.Labels,
-				//}
-				//out = append(out, &containerInst)
+				// containerInst is using containerIP:containerPort
+				containerInst := model.ServiceInstance{
+					Endpoint: model.NetworkEndpoint{
+						Address: inst.IP,
+						Port:    svcPort,
+						ServicePort: &model.Port{
+							Name:     hostPort.Name,
+							Protocol: hostPort.Protocol,
+							Port:     svcPort,
+						},
+					},
+					//AvailabilityZone: "default",
+					Service: &service,
+					Labels:  pod.Labels,
+				}
+				out = append(out, &containerInst)
 			}
 		}
 	}

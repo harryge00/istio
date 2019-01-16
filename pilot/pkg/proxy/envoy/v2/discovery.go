@@ -247,7 +247,6 @@ func (s *DiscoveryServer) Push(full bool, edsUpdates map[string]*model.EndpointS
 		go s.AdsPushAll(version, s.globalPushContext(), false, edsUpdates)
 		return
 	}
-	adsLog.Infof("Push!!!")
 	// Reset the status during the push.
 	//afterPush := true
 	pc := s.globalPushContext()
