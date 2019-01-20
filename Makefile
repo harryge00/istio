@@ -62,7 +62,7 @@ GOARCH_LOCAL := $(LOCAL_ARCH)
 endif
 export GOARCH ?= $(GOARCH_LOCAL)
 
-LOCAL_OS := Linux
+LOCAL_OS := Darwin
 ifeq ($(LOCAL_OS),Linux)
    export GOOS_LOCAL = linux
 else ifeq ($(LOCAL_OS),Darwin)

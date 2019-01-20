@@ -377,7 +377,7 @@ func portMatch(portList model.PortList, servicePort int) bool {
 // GetProxyServiceInstances lists service instances co-located with a given proxy
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
 	out := make([]*model.ServiceInstance, 0)
-	//log.Infof("GetProxyServiceInstances: %v %v", node.ID, node.Metadata)
+	log.Infof("GetProxyServiceInstances node: %v", node)
 	c.RLock()
 	defer c.RUnlock()
 	for _, pod := range c.podMap {
