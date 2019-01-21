@@ -15,6 +15,7 @@
 package v2
 
 import (
+	"encoding/json"
 	"fmt"
 
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
@@ -51,7 +52,9 @@ func (s *DiscoveryServer) pushLds(con *XdsConnection, push *model.PushContext, o
 	}
 	pushes.With(prometheus.Labels{"type": "lds"}).Add(1)
 
-	adsLog.Infof("LDS: PUSH for node:%s addr:%q listeners:%d %d", con.modelNode.ID, con.PeerAddr, len(rawListeners),
+	marshalListeners, _ := json.Marshal(rawListeners)
+
+	adsLog.Infof("LDS: PUSH for node:%s addr:%q listeners:%d %d", con.modelNode.ID, con.PeerAddr, string(marshalListeners),
 		response.Size())
 	return nil
 }
