@@ -19,6 +19,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"istio.io/istio/pilot/pkg/serviceregistry/mesos"
 	"net"
 	"net/http"
 	"os"
@@ -129,6 +130,7 @@ type ConsulArgs struct {
 type ServiceArgs struct {
 	Registries []string
 	Consul     ConsulArgs
+	Mesos      mesos.ControllerOptions
 }
 
 // PilotArgs provides all of the configuration parameters for the Pilot discovery service.
@@ -647,7 +649,10 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 					ServiceAccounts:  conctl,
 					Controller:       conctl,
 				})
-
+		case serviceregistry.MesosRegistry:
+			if err := s.initMesosRegistry(serviceControllers, args); err != nil {
+				return err
+			}
 		case serviceregistry.CloudFoundryRegistry:
 			cfConfig, err := cloudfoundry.LoadConfig(args.Config.CFConfig)
 			if err != nil {
@@ -696,6 +701,23 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 		go s.ServiceController.Run(stop)
 		return nil
 	})
+
+	return nil
+}
+
+func (s *Server) initMesosRegistry(serviceControllers *aggregate.Controller, args *PilotArgs) error {
+	log.Infof("Mesos Master address: %v", args.Service.Mesos.Master)
+	conctl, conerr := mesos.NewController(args.Service.Mesos)
+	if conerr != nil {
+		return fmt.Errorf("failed to create Mesos controller: %v", conerr)
+	}
+	serviceControllers.AddRegistry(
+		aggregate.Registry{
+			Name:             serviceregistry.MesosRegistry,
+			ServiceDiscovery: conctl,
+			ServiceAccounts:  conctl,
+			Controller:       conctl,
+		})
 
 	return nil
 }

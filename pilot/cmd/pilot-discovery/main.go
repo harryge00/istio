@@ -88,9 +88,9 @@ var (
 func init() {
 	discoveryCmd.PersistentFlags().StringSliceVar(&serverArgs.Service.Registries, "registries",
 		[]string{string(serviceregistry.KubernetesRegistry)},
-		fmt.Sprintf("Comma separated list of platform service registries to read from (choose one or more from {%s, %s, %s, %s, %s})",
+		fmt.Sprintf("Comma separated list of platform service registries to read from (choose one or more from {%s, %s, %s, %s, %s, %s})",
 			serviceregistry.KubernetesRegistry, serviceregistry.ConsulRegistry,
-			serviceregistry.CloudFoundryRegistry, serviceregistry.MockRegistry, serviceregistry.ConfigRegistry))
+			serviceregistry.CloudFoundryRegistry, serviceregistry.MockRegistry, serviceregistry.ConfigRegistry, serviceregistry.MesosRegistry))
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Config.CFConfig, "cfConfig", "",
 		"Cloud Foundry config file")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Config.ClusterRegistriesConfigmap, "clusterRegistriesConfigMap", "",
@@ -149,6 +149,19 @@ func init() {
 	discoveryCmd.PersistentFlags().IntVar(&monitoringPort, "monitoringPort", 9093,
 		"HTTP port to use for the exposing pilot self-monitoring information")
 	discoveryCmd.PersistentFlags().MarkDeprecated("monitoringPort", "Use --monitoringAddr instead")
+
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.Master, "mesosMaster", "",
+		"Address for the Mesos Master")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.HTTPBasicAuthUser, "marathonUser", "",
+		"HTTPBasicAuthUser for the Marathon")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.HTTPBasicPassword, "marathonPassword", "",
+		"HTTPBasicPassword for the Marathon")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.ContainerDomain, "mesosContainerDomain", "marathon.containerip.dcos.thisdcos.directory",
+		"FQDN Suffix of Container ip. Default 'marathon.containerip.dcos.thisdcos.directory'")
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Service.Mesos.VIPDomain, "mesosVIPDomain", "marathon.l4lb.thisdcos.directory",
+		"FQDN suffix for service ip with VIP label")
+	discoveryCmd.PersistentFlags().DurationVar(&serverArgs.Service.Mesos.Interval, "mesosSyncInterval", 2 * time.Second,
+		"Interval (in seconds) for polling the Mesos service registry")
 
 	// Attach the Istio logging options to the command.
 	loggingOptions.AttachCobraFlags(rootCmd)
