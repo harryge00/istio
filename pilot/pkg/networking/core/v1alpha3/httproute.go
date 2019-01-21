@@ -36,6 +36,7 @@ func (configgen *ConfigGeneratorImpl) BuildHTTPRoutes(env *model.Environment, no
 	// TODO: Move all this out
 	proxyInstances, err := env.GetProxyServiceInstances(node)
 	if err != nil {
+		log.Warna(err)
 		return nil, err
 	}
 	marshalled := model.MarshalServiceInstances(proxyInstances)
@@ -50,7 +51,7 @@ func (configgen *ConfigGeneratorImpl) BuildHTTPRoutes(env *model.Environment, no
 		return configgen.buildGatewayHTTPRouteConfig(env, node, push, proxyInstances, services, routeName)
 	default:
 		log.Warnf("No type for node %v", node)
-		
+
 	}
 	return nil, nil
 }
