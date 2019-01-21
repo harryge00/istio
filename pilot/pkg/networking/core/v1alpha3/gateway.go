@@ -183,7 +183,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(env *model.Environme
 
 func (configgen *ConfigGeneratorImpl) buildGatewayHTTPRouteConfig(env *model.Environment, node *model.Proxy, push *model.PushContext,
 	proxyInstances []*model.ServiceInstance, services []*model.Service, routeName string) (*xdsapi.RouteConfiguration, error) {
-	log.Infof("buildGatewayListeners %v", node)
+	log.Infof("buildGatewayHTTPRouteConfig %v", node)
 
 	// collect workload labels
 	var workloadLabels model.LabelsCollection

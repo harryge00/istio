@@ -39,7 +39,7 @@ func (configgen *ConfigGeneratorImpl) BuildHTTPRoutes(env *model.Environment, no
 		return nil, err
 	}
 	marshalled := model.MarshalServiceInstances(proxyInstances)
-	log.Infof("BuildHTTPRoutes %s: %v", routeName, marshalled)
+	log.Infof("BuildHTTPRoutes node: %v \n %s: %v", node, routeName, marshalled)
 
 	services := push.Services
 
@@ -48,6 +48,9 @@ func (configgen *ConfigGeneratorImpl) BuildHTTPRoutes(env *model.Environment, no
 		return configgen.buildSidecarOutboundHTTPRouteConfig(env, node, push, proxyInstances, services, routeName), nil
 	case model.Router, model.Ingress:
 		return configgen.buildGatewayHTTPRouteConfig(env, node, push, proxyInstances, services, routeName)
+	default:
+		log.Warnf("No type for node %v", node)
+		
 	}
 	return nil, nil
 }
