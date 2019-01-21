@@ -375,6 +375,8 @@ func portMatch(portList model.PortList, servicePort int) bool {
 }
 
 // GetProxyServiceInstances lists service instances co-located with a given proxy
+// Because hostIP is used for each instance, every host may have multiple instances of different services.
+// So we use node.ID to get the matched ServiceInstances.
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
 	out := make([]*model.ServiceInstance, 0)
 	log.Infof("GetProxyServiceInstances node: %v", node)

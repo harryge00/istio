@@ -49,8 +49,8 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(env *model.Environme
 		return nil, err
 	}
 
-	marshalled := model.MarshalServiceInstances(workloadInstances)
-	log.Infof("buildGatewayListeners: %v", marshalled)
+	//marshalled := model.MarshalServiceInstances(workloadInstances)
+	//log.Infof("buildGatewayListeners %v: %v", node, marshalled)
 
 	var workloadLabels model.LabelsCollection
 	for _, w := range workloadInstances {
@@ -183,6 +183,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(env *model.Environme
 
 func (configgen *ConfigGeneratorImpl) buildGatewayHTTPRouteConfig(env *model.Environment, node *model.Proxy, push *model.PushContext,
 	proxyInstances []*model.ServiceInstance, services []*model.Service, routeName string) (*xdsapi.RouteConfiguration, error) {
+	log.Infof("buildGatewayListeners %v", node)
 
 	// collect workload labels
 	var workloadLabels model.LabelsCollection
@@ -197,7 +198,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayHTTPRouteConfig(env *model.Env
 	}
 
 	merged := model.MergeGateways(gateways...)
-	log.Debugf("buildGatewayRoutes: gateways after merging: %v", merged)
+	log.Infof("buildGatewayRoutes: gateways after merging: %v", merged)
 
 	// make sure that there is some server listening on this port
 	if _, ok := merged.RDSRouteConfigNames[routeName]; !ok {
@@ -233,12 +234,12 @@ func (configgen *ConfigGeneratorImpl) buildGatewayHTTPRouteConfig(env *model.Env
 		vs := v.Spec.(*networking.VirtualService)
 		matchingHosts := pickMatchingGatewayHosts(gatewayHosts, vs.Hosts)
 		if len(matchingHosts) == 0 {
-			log.Debugf("%s omitting virtual service %q because its hosts  don't match gateways %v server %d", node.ID, v.Name, gateways, port)
+			log.Infof("%s omitting virtual service %q because its hosts  don't match gateways %v server %d", node.ID, v.Name, gateways, port)
 			continue
 		}
 		routes, err := istio_route.BuildHTTPRoutesForVirtualService(node, push, v, nameToServiceMap, port, nil, merged.Names)
 		if err != nil {
-			log.Debugf("%s omitting routes for service %v due to error: %v", node.ID, v, err)
+			log.Infof("%s omitting routes for service %v due to error: %v", node.ID, v, err)
 			continue
 		}
 
@@ -302,6 +303,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayHTTPRouteConfig(env *model.Env
 		p.OnOutboundRouteConfiguration(in, routeCfg)
 	}
 
+	log.Infof("vs: %v \n routeCfg: %v", virtualServices, routeCfg)
 	return routeCfg, nil
 }
 
