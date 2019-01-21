@@ -585,6 +585,7 @@ func sortConfigByCreationTime(configs []Config) []Config {
 }
 
 func (store *istioConfigStore) Gateways(workloadLabels LabelsCollection) []Config {
+	log.Debugf("Gateways: %v", workloadLabels)
 	configs, err := store.List(Gateway.Type, NamespaceAll)
 	if err != nil {
 		return nil
@@ -604,6 +605,8 @@ func (store *istioConfigStore) Gateways(workloadLabels LabelsCollection) []Confi
 			}
 		}
 	}
+	log.Debugf("Gateways configs: %v\n %v", configs, out)
+
 	return out
 }
 
