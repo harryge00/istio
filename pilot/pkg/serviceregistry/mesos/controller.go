@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	ISTIO_SERVICE_LABEL = "ISTIO_SERVICE_NAME"
+	ISTIO_SERVICE_LABEL = "istio"
 )
 
 var (
@@ -392,7 +392,6 @@ func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.Servi
 
 	//arr := marshalServiceInstances(out)
 	//log.Infof("GetProxyServiceInstances %v: %v", node, arr)
-
 	return out, nil
 }
 
