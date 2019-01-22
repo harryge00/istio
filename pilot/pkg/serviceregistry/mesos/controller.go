@@ -497,11 +497,13 @@ func (c *Controller) Run(stop <-chan struct{}) {
 				continue
 			}
 
+			podName := actions[0].Pod
+
 			switch actions[0].Action {
 			// TODO: supports graceful shutdown
 			// Delete a pod from podMap
 			case "StopPod":
-				pod := actions[0].Pod
+				pod := podName
 				log.Infof("Stop Pod: %v", pod)
 				c.Lock()
 				delete(c.podMap, pod)
@@ -509,25 +511,31 @@ func (c *Controller) Run(stop <-chan struct{}) {
 				c.Unlock()
 			case "StartPod":
 				// Add a new pod to podMap
-				podInfo := getPodFromDepInfo(depInfo.Plan.Target.Pods, actions[0].Pod)
+				podInfo := getPodFromDepInfo(depInfo.Plan.Target.Pods, podName)
 				if podInfo != nil {
 					c.Lock()
-					c.podMap[actions[0].Pod] = podInfo
+					c.podMap[podName] = podInfo
 					log.Infof("Add pod %v", podInfo.HostNames)
 					printPodMap(c.podMap)
 					c.Unlock()
 				}
 			case "RestartPod":
 				// Update a existing pod in podMap
-				podInfo := getPodFromDepInfo(depInfo.Plan.Target.Pods, actions[0].Pod)
-				if podInfo != nil {
-					c.Lock()
-					c.podMap[actions[0].Pod].Labels = podInfo.Labels
-					c.podMap[actions[0].Pod].HostNames = podInfo.HostNames
-					c.podMap[actions[0].Pod].PortList = podInfo.PortList
-					log.Infof("Update pod %v to podMap: %v", podInfo.HostNames, c.podMap)
-					c.Unlock()
+				podInfo := getPodFromDepInfo(depInfo.Plan.Target.Pods, podName)
+				if podInfo == nil {
+					continue
 				}
+				c.Lock()
+				if c.podMap[podName] == nil {
+					log.Warnf("Pod %s restarted, but no record in podMap: %v", podName, c.podMap)
+					c.podMap[podName] = podInfo
+				} else {
+					c.podMap[podName].Labels = podInfo.Labels
+					c.podMap[podName].HostNames = podInfo.HostNames
+					c.podMap[podName].PortList = podInfo.PortList
+					log.Infof("Update pod %v to podMap: %v", podInfo.HostNames, c.podMap)
+				}
+				c.Unlock()
 			case "ScalePod":
 				log.Infof("Scaling pod: %v", actions[0])
 			}
