@@ -565,6 +565,7 @@ type istioConfigStore struct {
 // In pilot it is initialized with a ConfigStoreCache, tests only use
 // a regular ConfigStore.
 func MakeIstioStore(store ConfigStore) IstioConfigStore {
+	log.Debugf("MakeIstioStore: %v", store)
 	return &istioConfigStore{store}
 }
 
@@ -585,7 +586,7 @@ func sortConfigByCreationTime(configs []Config) []Config {
 }
 
 func (store *istioConfigStore) Gateways(workloadLabels LabelsCollection) []Config {
-	log.Debugf("Gateways: %v", workloadLabels)
+	log.Infof("Gateways: %v", workloadLabels)
 	configs, err := store.List(Gateway.Type, NamespaceAll)
 	if err != nil {
 		return nil
@@ -605,7 +606,7 @@ func (store *istioConfigStore) Gateways(workloadLabels LabelsCollection) []Confi
 			}
 		}
 	}
-	log.Debugf("Gateways configs: %v\n %v", configs, out)
+	log.Infof("Gateways configs: %v\n %v", configs, out)
 
 	return out
 }
