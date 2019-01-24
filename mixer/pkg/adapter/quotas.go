@@ -23,7 +23,6 @@ import (
 )
 
 type (
-
 	// QuotaArgs supplies the arguments for quota operations.
 	QuotaArgs struct {
 		// DeduplicationID is used for deduplicating quota allocation/free calls in the case of
