@@ -44,34 +44,6 @@ static_resources:
         path: /sock/mixer.socket
     http2_protocol_options: {}
     name: inbound_9092
-  - circuit_breakers:
-      thresholds:
-      - max_connections: 100000
-        max_pending_requests: 100000
-        max_requests: 100000
-        max_retries: 3
-    connect_timeout: 1.000s
-    hosts:
-    - socket_address:
-        address: istio-telemetry.marathon.slave.mesos
-        port_value: 31504
-    http2_protocol_options: {}
-    name: mixer_report_server
-{{- if .ControlPlaneAuth }}
-    tls_context:
-      common_tls_context:
-        tls_certificates:
-        - certificate_chain:
-            filename: /etc/certs/cert-chain.pem
-          private_key:
-            filename: /etc/certs/key.pem
-        validation_context:
-          trusted_ca:
-            filename: /etc/certs/root-cert.pem
-          verify_subject_alt_name:
-          - spiffe://cluster.local/ns/{{ .PodNamespace }}/sa/istio-mixer-service-account
-{{- end }}
-    type: STRICT_DNS
   listeners:
   - address:
       socket_address:
@@ -109,9 +81,9 @@ static_resources:
           generate_request_id: true
           http_filters:
           - config:
-              default_destination_service: istio-policy.marathon.slave.mesos
+              default_destination_service: istio-telemetry.marathon.slave.mesos
               service_configs:
-                istio-policy.marathon.slave.mesos:
+                istio-telemetry.marathon.slave.mesos:
                   disable_check_calls: true
 {{- if .DisableReportCalls }}
                   disable_report_calls: true
@@ -119,13 +91,13 @@ static_resources:
                   mixer_attributes:
                     attributes:
                       destination.service:
-                        string_value: istio-policy.marathon.slave.mesos
+                        string_value: istio-telemetry.marathon.slave.mesos
                       destination.service.host:
-                        string_value: istio-policy.marathon.slave.mesos
+                        string_value: istio-telemetry.marathon.slave.mesos
                       destination.service.uid:
-                        string_value: istio://{{ .PodNamespace }}/services/istio-policy
+                        string_value: istio://{{ .PodNamespace }}/services/istio-telemetry
                       destination.service.name:
-                        string_value: istio-policy
+                        string_value: istio-telemetry
                       destination.service.namespace:
                         string_value: {{ .PodNamespace }}
                       destination.uid:
@@ -142,11 +114,7 @@ static_resources:
                         string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
               transport:
                 check_cluster: mixer_check_server
-                report_cluster: mixer_report_server
-                attributes_for_mixer_proxy:
-                  attributes:
-                    source.uid:
-                      string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                report_cluster: inbound_9092
             name: mixer
           - name: envoy.router
           route_config:
@@ -154,10 +122,10 @@ static_resources:
             virtual_hosts:
             - domains:
               - '*'
-              name: istio-policy.marathon.slave.mesos
+              name: istio-telemetry.marathon.slave.mesos
               routes:
               - decorator:
-                  operation: Check
+                  operation: Report
                 match:
                   prefix: /
                 route:
@@ -194,9 +162,9 @@ static_resources:
           generate_request_id: true
           http_filters:
           - config:
-              default_destination_service: istio-policy.marathon.slave.mesos
+              default_destination_service: istio-telemetry.marathon.slave.mesos
               service_configs:
-                istio-policy.marathon.slave.mesos:
+                istio-telemetry.marathon.slave.mesos:
                   disable_check_calls: true
 {{- if .DisableReportCalls }}
                   disable_report_calls: true
@@ -204,13 +172,13 @@ static_resources:
                   mixer_attributes:
                     attributes:
                       destination.service:
-                        string_value: istio-policy.marathon.slave.mesos
+                        string_value: istio-telemetry.marathon.slave.mesos
                       destination.service.host:
-                        string_value: istio-policy.marathon.slave.mesos
+                        string_value: istio-telemetry.marathon.slave.mesos
                       destination.service.uid:
-                        string_value: istio://{{ .PodNamespace }}/services/istio-policy
+                        string_value: istio://{{ .PodNamespace }}/services/istio-telemetry
                       destination.service.name:
-                        string_value: istio-policy
+                        string_value: istio-telemetry
                       destination.service.namespace:
                         string_value: {{ .PodNamespace }}
                       destination.uid:
@@ -227,11 +195,7 @@ static_resources:
                         string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
               transport:
                 check_cluster: mixer_check_server
-                report_cluster: mixer_report_server
-                attributes_for_mixer_proxy:
-                  attributes:
-                    source.uid:
-                      string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                report_cluster: inbound_9092
             name: mixer
           - name: envoy.router
           route_config:
@@ -239,10 +203,10 @@ static_resources:
             virtual_hosts:
             - domains:
               - '*'
-              name: istio-policy.marathon.slave.mesos
+              name: istio-telemetry.marathon.slave.mesos
               routes:
               - decorator:
-                  operation: Check
+                  operation: Report
                 match:
                   prefix: /
                 route:
