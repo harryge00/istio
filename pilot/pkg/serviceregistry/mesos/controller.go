@@ -29,6 +29,7 @@ import (
 
 const (
 	ISTIO_SERVICE_LABEL = "istio"
+	ISTIO_MIXER_LABEL = "istio-mixer-type"
 )
 
 var (
@@ -54,7 +55,7 @@ type ControllerOptions struct {
 	Interval          time.Duration
 }
 
-// Controller communicates with Marathon and monitors for changes
+// Controller accepts event streams from Marathon and monitors for allocated host ports and host IP of tasks.
 type Controller struct {
 	// No need to lock now. Because we only use one for-loop to update podMap
 	sync.RWMutex
@@ -675,6 +676,10 @@ func convertPod(pod *marathon.Pod) *PodInfo {
 				Protocol: convertProtocol(ep.Protocol),
 				Port:     ep.ContainerPort,
 			}
+			if pod.Labels[ISTIO_MIXER_LABEL] != "" && strings.Contains(ep.Name, "grpc") {
+				port.Protocol = model.ProtocolGRPC
+				log.Infof("GPRC port: %v", ep)
+			}
 			info.PortList = append(info.PortList, &port)
 		}
 	}
@@ -691,6 +696,7 @@ func convertPod(pod *marathon.Pod) *PodInfo {
 func getPodInfo(status *marathon.PodStatus) *PodInfo {
 	svcNames := status.Spec.Labels[ISTIO_SERVICE_LABEL]
 	if svcNames == "" {
+		log.Debugf("No need to process the pod: %v", status.ID)
 		return nil
 	}
 	svcs := strings.Split(svcNames, ",")
@@ -700,6 +706,7 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 		//log.Infof("svc:%v, hostName:%v", svc, hostName)
 		hostMap[hostName] = true
 	}
+
 	podInfo := &PodInfo{
 		HostNames:   hostMap,
 		InstanceMap: make(map[string]*TaskInstance),
@@ -713,6 +720,10 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 				Name:     ep.Name,
 				Protocol: convertProtocol(ep.Protocol),
 				Port:     ep.ContainerPort,
+			}
+			if status.Spec.Labels[ISTIO_MIXER_LABEL] != "" && strings.Contains(ep.Name, "grpc") {
+				port.Protocol = model.ProtocolGRPC
+				log.Infof("GPRC port: %v", ep)
 			}
 			portMap[ep.Name] = &port
 			podInfo.PortList = append(podInfo.PortList, &port)
