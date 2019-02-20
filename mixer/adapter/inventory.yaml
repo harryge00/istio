@@ -18,3 +18,5 @@ solarwinds: "istio.io/istio/mixer/adapter/solarwinds"
 stackdriver: "istio.io/istio/mixer/adapter/stackdriver"
 statsd: "istio.io/istio/mixer/adapter/statsd"
 stdio: "istio.io/istio/mixer/adapter/stdio"
+mysampleadapter: "istio.io/istio/mixer/adapter/mysampleadapter"
+
