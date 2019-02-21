@@ -96,6 +96,7 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 	paramsProto := b.adapterConfig
 	stopChan := make(chan struct{})
 	refresh := paramsProto.CacheRefreshDuration
+	env.Logger().Infof("Building marathon handler")
 
 	// only ever build a controller for a config once. this potential blocks
 	// the Build() for multiple handlers using the same config until the first
@@ -141,6 +142,8 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 
 func (h *handler) GeneratemesosAttributes(ctx context.Context, inst *mtmpl.Instance) (*mtmpl.Output, error) {
 	out := mtmpl.NewOutput()
+	h.env.Logger().Infof("GeneratemesosAttributes %v ", inst.Name)
+
 	out.SetDestinationPodName("testpod")
 	out.SetDestinationPodName("testns")
 	return out, nil

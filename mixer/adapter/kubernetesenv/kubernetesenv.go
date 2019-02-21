@@ -116,6 +116,7 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 	if !exists {
 		path = paramsProto.KubeconfigPath
 	}
+	env.Logger().Infof("Building k8s handler")
 
 	// only ever build a controller for a config once. this potential blocks
 	// the Build() for multiple handlers using the same config until the first
@@ -159,6 +160,7 @@ func newBuilder(clientFactory clientFactoryFn) *builder {
 
 func (h *handler) GenerateKubernetesAttributes(ctx context.Context, inst *ktmpl.Instance) (*ktmpl.Output, error) {
 	out := ktmpl.NewOutput()
+	h.env.Logger().Infof("GenerateKubernetesAttributes %v ", inst.Name)
 
 	if inst.DestinationUid != "" {
 		if p, found := h.findPod(inst.DestinationUid); found {

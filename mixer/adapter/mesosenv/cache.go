@@ -44,5 +44,5 @@ func (c *controllerImpl) Run(stop <-chan struct{}) {
 }
 
 func (c *controllerImpl) HasSynced() bool {
-	return false
+	return true
 }
