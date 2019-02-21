@@ -63,6 +63,8 @@ type (
 
 // compile-time validation
 var _ mtmpl.HandlerBuilder = &builder{}
+var _ mtmpl.Handler = &handler{}
+
 
 // GetInfo returns the Info associated with this adapter implementation.
 func GetInfo() adapter.Info {
@@ -78,7 +80,11 @@ func GetInfo() adapter.Info {
 			CacheRefreshDuration: defaultRefreshPeriod,
 		},
 
-		NewBuilder: func() adapter.HandlerBuilder { return &builder{} },
+		NewBuilder: func() adapter.HandlerBuilder {
+			return &builder{
+				controllers:   make(map[string]cacheController),
+			}
+		},
 	}
 }
 
@@ -140,12 +146,15 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 	}, nil
 }
 
-func (h *handler) GeneratemesosAttributes(ctx context.Context, inst *mtmpl.Instance) (*mtmpl.Output, error) {
+func (h *handler) GenerateMesosAttributes(ctx context.Context, inst *mtmpl.Instance) (*mtmpl.Output, error) {
 	out := mtmpl.NewOutput()
 	h.env.Logger().Infof("GeneratemesosAttributes %v ", inst.Name)
 
 	out.SetDestinationPodName("testpod")
-	out.SetDestinationPodName("testns")
+	out.SetDestinationContainerName("testcontainer")
+
+	h.env.Logger().Infof("out: %v", out)
+
 	return out, nil
 }
 
