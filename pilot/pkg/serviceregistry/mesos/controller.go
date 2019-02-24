@@ -29,7 +29,7 @@ import (
 
 const (
 	ISTIO_SERVICE_LABEL = "istio"
-	ISTIO_MIXER_LABEL = "istio-mixer-type"
+	ISTIO_MIXER_LABEL   = "istio-mixer-type"
 )
 
 var (
@@ -277,7 +277,7 @@ func (c *Controller) InstancesByPort(hostname model.Hostname, port int,
 		hostname = model.Hostname(arr[0])
 		taskID := arr[1]
 		//task = c.getTaskInstanceByID(taskID)
-		log.Infof("InstancesByPort %v %v", hostname, taskID)
+		log.Infof("InstancesByPort %v task: %v", hostname, taskID)
 	}
 	for _, pod := range c.podMap {
 		if portMatch(pod.PortList, port) && pod.HostNames[name] && labels.HasSubsetOf(pod.Labels) {
@@ -338,22 +338,22 @@ func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) [
 				}
 				out = append(out, &hostPortInst)
 
-				//// containerInst is using containerIP:containerPort
-				//containerInst := model.ServiceInstance{
-				//	Endpoint: model.NetworkEndpoint{
-				//		Address: inst.IP,
-				//		Port:    svcPort,
-				//		ServicePort: &model.Port{
-				//			Name:     hostPort.Name,
-				//			Protocol: hostPort.Protocol,
-				//			Port:     svcPort,
-				//		},
-				//	},
-				//	//AvailabilityZone: "default",
-				//	Service: &service,
-				//	Labels:  pod.Labels,
-				//}
-				//out = append(out, &containerInst)
+				// containerInst is using containerIP:containerPort
+				containerInst := model.ServiceInstance{
+					Endpoint: model.NetworkEndpoint{
+						Address: inst.IP,
+						Port:    svcPort,
+						ServicePort: &model.Port{
+							Name:     hostPort.Name,
+							Protocol: hostPort.Protocol,
+							Port:     svcPort,
+						},
+					},
+					//AvailabilityZone: "default",
+					Service: &service,
+					Labels:  pod.Labels,
+				}
+				out = append(out, &containerInst)
 			}
 		}
 	}
@@ -378,7 +378,7 @@ func portMatch(portList model.PortList, servicePort int) bool {
 // So we use node.ID to get the matched ServiceInstances.
 func (c *Controller) GetProxyServiceInstances(node *model.Proxy) ([]*model.ServiceInstance, error) {
 	out := make([]*model.ServiceInstance, 0)
-	log.Infof("GetProxyServiceInstances node: %v", node)
+	//log.Infof("GetProxyServiceInstances node: %v", node)
 	c.RLock()
 	defer c.RUnlock()
 	for _, pod := range c.podMap {

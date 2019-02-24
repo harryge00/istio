@@ -21,16 +21,15 @@ import (
 
 	"istio.io/istio/pilot/pkg/serviceregistry"
 
-	"strconv"
-	"strings"
-	"sync"
-	"time"
-
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
 	"github.com/gogo/protobuf/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
@@ -80,6 +79,7 @@ type EdsCluster struct {
 	FirstUse time.Time
 
 	// EdsClients keeps track of all nodes monitoring the cluster.
+	// Use PeerAddr for resolving mesos-bridge same host problem
 	EdsClients map[string]*XdsConnection `json:"-"`
 
 	// NonEmptyTime is the time the cluster first had a non-empty set of endpoints
@@ -353,6 +353,12 @@ func (s *DiscoveryServer) updateServiceShards(push *model.PushContext) error {
 	return nil
 }
 
+func printEdsClient(edsCluster *EdsCluster) {
+	for name, cli := range edsCluster.EdsClients {
+		adsLog.Debugf("%v: %v", name, cli)
+	}
+}
+
 // updateCluster is called from the event (or global cache invalidation) to update
 // the endpoints for the cluster.
 func (s *DiscoveryServer) updateCluster(push *model.PushContext, clusterName string, edsCluster *EdsCluster) error {
@@ -369,7 +375,7 @@ func (s *DiscoveryServer) updateCluster(push *model.PushContext, clusterName str
 		_, subsetName, hostname, p = model.ParseSubsetKey(clusterName)
 
 		labels = push.SubsetToLabels(subsetName, hostname)
-
+		printEdsClient(edsCluster)
 		// TODO: k8s adapter should use EdsUpdate. This would return non-k8s stuff, needs to
 		// be merged with k8s. This returns ServiceEntries.
 		instances, err = edsCluster.discovery.Env.ServiceDiscovery.InstancesByPort(hostname, p, labels)
@@ -601,6 +607,7 @@ func localityLbEndpointsFromInstances(instances []*model.ServiceInstance) []endp
 			totalXDSInternalErrors.Add(1)
 			continue
 		}
+
 		// TODO: Need to accommodate region, zone and subzone. Older Pilot datamodel only has zone = availability zone.
 		// Once we do that, the key must be a | separated tupple.
 		locality := instance.GetAZ()
@@ -628,6 +635,54 @@ func connectionID(node string) string {
 	c := connectionNumber
 	edsClusterMutex.Unlock()
 	return node + "-" + strconv.Itoa(int(c))
+}
+
+// This is for mesos registry, where mesos-bridge is used as the network mode.
+// Because containers in the same host cannot access each other through hostIP + hostPort,
+// containerIP : containerPort is used.
+// TODO: determine registry type and only used in Mesos.
+func pruneLoadAssignment(con *XdsConnection, assignment *xdsapi.ClusterLoadAssignment) *xdsapi.ClusterLoadAssignment {
+	// No need to prune if there is less than 2 endpoints.
+	if con.PeerIP == "" || con.PeerIP == "0.0.0.0" {
+		adsLog.Debugf("peerIP: %v, load: %v", con.PeerIP, assignment.Endpoints)
+		return assignment
+	}
+	adsLog.Debugf("peerIP: %v, cluster: %v", con.PeerIP, assignment.ClusterName)
+	prunedLoad := &xdsapi.ClusterLoadAssignment{
+		Policy:      assignment.Policy,
+		ClusterName: assignment.ClusterName,
+	}
+	for _, ep := range assignment.Endpoints {
+		prunedEp := endpoint.LocalityLbEndpoints{
+			Priority:            ep.Priority,
+			Locality:            ep.Locality,
+			LoadBalancingWeight: ep.LoadBalancingWeight,
+		}
+		sameHost := false
+		for i, lbep := range ep.LbEndpoints {
+			// HostIP
+			adsLog.Debugf("socketAddr: %v", lbep.Endpoint.Address.GetSocketAddress().Address)
+			if i%2 == 0 {
+				if lbep.Endpoint.Address.GetSocketAddress().Address == con.PeerIP {
+					adsLog.Debugf("Found a endpoint with the same host IP: %v for %v", con.PeerIP, assignment.ClusterName)
+					sameHost = true
+					continue
+				}
+			} else {
+				// else containerIP
+				if sameHost {
+					sameHost = false
+				} else {
+					// Different host should use hostIP:hostPort
+					adsLog.Debugf("Skip containerIP %v in different host: %v", lbep.Endpoint, con.PeerIP)
+					continue
+				}
+			}
+			prunedEp.LbEndpoints = append(prunedEp.LbEndpoints, lbep)
+		}
+		prunedLoad.Endpoints = append(prunedLoad.Endpoints, prunedEp)
+	}
+	return prunedLoad
 }
 
 // pushEds is pushing EDS updates for a single connection. Called the first time
@@ -669,6 +724,10 @@ func (s *DiscoveryServer) pushEds(push *model.PushContext, con *XdsConnection,
 			}
 			l = loadAssignment(c)
 		}
+
+		l = pruneLoadAssignment(con, l)
+		adsLog.Debugf("pushEDs loadAssignment: %v", l)
+
 		endpoints += len(l.Endpoints)
 		if len(l.Endpoints) == 0 {
 			emptyClusters++

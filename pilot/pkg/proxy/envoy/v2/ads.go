@@ -20,6 +20,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -195,6 +196,9 @@ type XdsConnection struct {
 	// Mutex to protect changes to this XDS connection
 	mu sync.RWMutex
 
+	// PeerIP is the IP address of the client envoy, from network layer
+	PeerIP string
+
 	// PeerAddr is the address of the client envoy, from network layer
 	PeerAddr string
 
@@ -281,7 +285,7 @@ type XdsEvent struct {
 }
 
 func newXdsConnection(peerAddr string, stream DiscoveryStream) *XdsConnection {
-	return &XdsConnection{
+	con := &XdsConnection{
 		pushChannel:  make(chan *XdsEvent, 1),
 		doneChannel:  make(chan int, 1),
 		PeerAddr:     peerAddr,
@@ -291,6 +295,13 @@ func newXdsConnection(peerAddr string, stream DiscoveryStream) *XdsConnection {
 		LDSListeners: []*xdsapi.Listener{},
 		RouteConfigs: map[string]*xdsapi.RouteConfiguration{},
 	}
+	// To fix the problem of communication in the same host using mesos-bridge,
+	// we have to switch containerIP/hostIP based on the connection's IP
+	if splitIP := strings.Split(peerAddr, ":"); len(splitIP) == 2 {
+		con.PeerIP = splitIP[0]
+		adsLog.Debugf("Assign peerIP: %v", con.PeerIP)
+	}
+	return con
 }
 
 func receiveThread(con *XdsConnection, reqChannel chan *xdsapi.DiscoveryRequest, errP *error) {
