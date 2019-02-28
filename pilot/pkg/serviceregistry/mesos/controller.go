@@ -57,7 +57,6 @@ type ControllerOptions struct {
 
 // Controller accepts event streams from Marathon and monitors for allocated host ports and host IP of tasks.
 type Controller struct {
-	// No need to lock now. Because we only use one for-loop to update podMap
 	sync.RWMutex
 	// podMap stores podName ==> podInfo
 	podMap map[string]*PodInfo
@@ -481,6 +480,7 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			c.serviceHandler(nil, event)
 		case <-stop:
 			log.Info("Exiting the loop")
+			break
 		case event := <-c.depInfoChan:
 			// deployment_info event
 			var depInfo *marathon.EventDeploymentInfo
