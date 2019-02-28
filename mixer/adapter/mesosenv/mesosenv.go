@@ -25,21 +25,20 @@ package mesosenv
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/harryge00/go-marathon"
 	"istio.io/istio/mixer/adapter/mesosenv/config"
 	mtmpl "istio.io/istio/mixer/adapter/mesosenv/template"
 	"istio.io/istio/mixer/pkg/adapter"
 	_ "k8s.io/client-go/plugin/pkg/client/auth" // needed for auth
-	"k8s.io/client-go/tools/cache"
-
-	"github.com/harryge00/go-marathon"
 )
 
 const (
 	defaultMarathonAddress = "http://master.mesos:8080"
+	kubePrefix             = "kubernetes://"
 
 	// mesos cache invalidation
 	// TODO: determine a reasonable default
@@ -55,16 +54,15 @@ type (
 	}
 
 	handler struct {
-		k8sCache cacheController
-		env      adapter.Env
-		params   *config.Params
+		mesosCache cacheController
+		env        adapter.Env
+		params     *config.Params
 	}
 )
 
 // compile-time validation
 var _ mtmpl.HandlerBuilder = &builder{}
 var _ mtmpl.Handler = &handler{}
-
 
 // GetInfo returns the Info associated with this adapter implementation.
 func GetInfo() adapter.Info {
@@ -76,13 +74,13 @@ func GetInfo() adapter.Info {
 			mtmpl.TemplateName,
 		},
 		DefaultConfig: &config.Params{
-			MarathonAddress:       defaultMarathonAddress,
+			MarathonAddress:      defaultMarathonAddress,
 			CacheRefreshDuration: defaultRefreshPeriod,
 		},
 
 		NewBuilder: func() adapter.HandlerBuilder {
 			return &builder{
-				controllers:   make(map[string]cacheController),
+				controllers: make(map[string]cacheController),
 			}
 		},
 	}
@@ -102,7 +100,7 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 	paramsProto := b.adapterConfig
 	stopChan := make(chan struct{})
 	refresh := paramsProto.CacheRefreshDuration
-	env.Logger().Infof("Building marathon handler")
+	env.Logger().Infof("Building marathon handler %v", paramsProto)
 
 	// only ever build a controller for a config once. this potential blocks
 	// the Build() for multiple handlers using the same config until the first
@@ -130,30 +128,48 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 		env.ScheduleDaemon(func() { controller.Run(stopChan) })
 		// ensure that any request is only handled after
 		// a sync has occurred
-		env.Logger().Infof("Waiting for mesos cache sync...")
-		if success := cache.WaitForCacheSync(stopChan, controller.HasSynced); !success {
-			stopChan <- struct{}{}
-			return nil, errors.New("cache sync failure")
-		}
-		env.Logger().Infof("Cache sync successful.")
+
+		env.Logger().Infof("Syncing with marathon")
 		b.controllers[paramsProto.MarathonAddress] = controller
 	}
 
 	return &handler{
-		env:      env,
-		k8sCache: controller,
-		params:   paramsProto,
+		env:        env,
+		mesosCache: controller,
+		params:     paramsProto,
 	}, nil
+}
+
+func keyFromUID(uid string) (podKey string, taskKey string) {
+	taskKey = strings.TrimPrefix(uid, kubePrefix)
+	if strings.Contains(taskKey, ".") {
+		parts := strings.Split(taskKey, ".")
+		if len(parts) == 2 {
+			podKey = parts[0]
+		}
+	}
+	return
 }
 
 func (h *handler) GenerateMesosAttributes(ctx context.Context, inst *mtmpl.Instance) (*mtmpl.Output, error) {
 	out := mtmpl.NewOutput()
-	h.env.Logger().Infof("GeneratemesosAttributes %v ", inst.Name)
+	h.env.Logger().Debugf("GeneratemesosAttributes %v ", inst)
+	if task, found := h.mesosCache.PodTask(inst.DestinationUid); found {
+		h.env.Logger().Debugf("task %v ", task)
 
-	out.SetDestinationPodName("testpod")
-	out.SetDestinationContainerName("testcontainer")
+		out.SetDestinationLabels(task.Labels)
+		out.SetDestinationHostIp(task.HostIP)
+		out.SetDestinationPodIp(task.ContainerIP)
+	}
 
-	h.env.Logger().Infof("out: %v", out)
+	if task, found := h.mesosCache.PodTask(inst.SourceUid); found {
+		h.env.Logger().Debugf("task %v ", task)
+		out.SetSourceLabels(task.Labels)
+	}
+	//sID := inst.SourceUid
+	//for
+	//dID := inst.DestinationUid
+	//h.env.Logger().Infof("out: %v", out)
 
 	return out, nil
 }
