@@ -10,3 +10,4 @@ reportnothing/template_proto.descriptor_set: "istio.io/istio/mixer/template/repo
 tracespan/tracespan_proto.descriptor_set: "istio.io/istio/mixer/template/tracespan"
 ../adapter/servicecontrol/template/servicecontrolreport/template_proto.descriptor_set: "istio.io/istio/mixer/adapter/servicecontrol/template/servicecontrolreport"
 ../adapter/kubernetesenv/template/template_proto.descriptor_set: "istio.io/istio/mixer/adapter/kubernetesenv/template"
+../adapter/mesosenv/template/template_proto.descriptor_set: "istio.io/istio/mixer/adapter/mesosenv/template"

@@ -35,6 +35,8 @@ import (
 
 	"istio.io/istio/mixer/adapter/kubernetesenv/template"
 
+	"istio.io/istio/mixer/adapter/mesosenv/template"
+
 	"istio.io/istio/mixer/adapter/servicecontrol/template/servicecontrolreport"
 
 	"istio.io/istio/mixer/template/apikey"
@@ -507,6 +509,416 @@ var (
 				expressions := make(map[string]compiled.Expression, len(param.AttributeBindings))
 
 				const fullOutName = "adapter_template_kubernetes.output."
+				for attrName, outExpr := range param.AttributeBindings {
+					attrInfo := finder.GetAttribute(attrName)
+					if attrInfo == nil {
+						log.Warnf("attribute not found when mapping outputs: attr='%s', expr='%s'", attrName, outExpr)
+						continue
+					}
+
+					ex := strings.Replace(outExpr, "$out.", fullOutName, -1)
+
+					if expressions[attrName], expType, err = expb.Compile(ex); err != nil {
+						return nil, err
+					}
+
+					if attrInfo.ValueType != expType {
+						log.Warnf("attribute type mismatch: attr='%s', attrType='%v', expr='%s', exprType='%v'", attrName, attrInfo.ValueType, outExpr, expType)
+						continue
+					}
+				}
+
+				return expressions, nil
+			},
+		},
+
+		adapter_template_mesos.TemplateName: {
+			Name:               adapter_template_mesos.TemplateName,
+			Impl:               "adapter.template.mesos",
+			CtrCfg:             &adapter_template_mesos.InstanceParam{},
+			Variety:            istio_adapter_model_v1beta1.TEMPLATE_VARIETY_ATTRIBUTE_GENERATOR,
+			BldrInterfaceName:  adapter_template_mesos.TemplateName + "." + "HandlerBuilder",
+			HndlrInterfaceName: adapter_template_mesos.TemplateName + "." + "Handler",
+			BuilderSupportsTemplate: func(hndlrBuilder adapter.HandlerBuilder) bool {
+				_, ok := hndlrBuilder.(adapter_template_mesos.HandlerBuilder)
+				return ok
+			},
+			HandlerSupportsTemplate: func(hndlr adapter.Handler) bool {
+				_, ok := hndlr.(adapter_template_mesos.Handler)
+				return ok
+			},
+			InferType: func(cp proto.Message, tEvalFn template.TypeEvalFn) (proto.Message, error) {
+
+				var BuildTemplate func(param *adapter_template_mesos.InstanceParam,
+					path string) (proto.Message, error)
+
+				_ = BuildTemplate
+
+				BuildTemplate = func(param *adapter_template_mesos.InstanceParam,
+					path string) (proto.Message, error) {
+
+					if param == nil {
+						return nil, nil
+					}
+
+					var err error = nil
+
+					if param.SourceUid != "" {
+						if t, e := tEvalFn(param.SourceUid); e != nil || t != istio_policy_v1beta1.STRING {
+							if e != nil {
+								return nil, fmt.Errorf("failed to evaluate expression for field '%s': %v", path+"SourceUid", e)
+							}
+							return nil, fmt.Errorf("error type checking for field '%s': Evaluated expression type %v want %v", path+"SourceUid", t, istio_policy_v1beta1.STRING)
+						}
+					}
+
+					if param.SourceIp != "" {
+						if t, e := tEvalFn(param.SourceIp); e != nil || t != istio_policy_v1beta1.IP_ADDRESS {
+							if e != nil {
+								return nil, fmt.Errorf("failed to evaluate expression for field '%s': %v", path+"SourceIp", e)
+							}
+							return nil, fmt.Errorf("error type checking for field '%s': Evaluated expression type %v want %v", path+"SourceIp", t, istio_policy_v1beta1.IP_ADDRESS)
+						}
+					}
+
+					if param.DestinationUid != "" {
+						if t, e := tEvalFn(param.DestinationUid); e != nil || t != istio_policy_v1beta1.STRING {
+							if e != nil {
+								return nil, fmt.Errorf("failed to evaluate expression for field '%s': %v", path+"DestinationUid", e)
+							}
+							return nil, fmt.Errorf("error type checking for field '%s': Evaluated expression type %v want %v", path+"DestinationUid", t, istio_policy_v1beta1.STRING)
+						}
+					}
+
+					if param.DestinationIp != "" {
+						if t, e := tEvalFn(param.DestinationIp); e != nil || t != istio_policy_v1beta1.IP_ADDRESS {
+							if e != nil {
+								return nil, fmt.Errorf("failed to evaluate expression for field '%s': %v", path+"DestinationIp", e)
+							}
+							return nil, fmt.Errorf("error type checking for field '%s': Evaluated expression type %v want %v", path+"DestinationIp", t, istio_policy_v1beta1.IP_ADDRESS)
+						}
+					}
+
+					if param.DestinationPort != "" {
+						if t, e := tEvalFn(param.DestinationPort); e != nil || t != istio_policy_v1beta1.INT64 {
+							if e != nil {
+								return nil, fmt.Errorf("failed to evaluate expression for field '%s': %v", path+"DestinationPort", e)
+							}
+							return nil, fmt.Errorf("error type checking for field '%s': Evaluated expression type %v want %v", path+"DestinationPort", t, istio_policy_v1beta1.INT64)
+						}
+					}
+
+					return nil, err
+
+				}
+
+				instParam := cp.(*adapter_template_mesos.InstanceParam)
+
+				const fullOutName = "adapter_template_mesos.output."
+				for attr, exp := range instParam.AttributeBindings {
+					expr := strings.Replace(exp, "$out.", fullOutName, -1)
+					t1, err := tEvalFn(expr)
+					if err != nil {
+						return nil, fmt.Errorf("error evaluating AttributeBinding expression '%s' for attribute '%s': %v", expr, attr, err)
+					}
+					t2, err := tEvalFn(attr)
+					if err != nil {
+						return nil, fmt.Errorf("error evaluating AttributeBinding expression for attribute key '%s': %v", attr, err)
+					}
+					if t1 != t2 {
+						return nil, fmt.Errorf(
+							"error evaluating AttributeBinding: type '%v' for attribute '%s' does not match type '%s' for expression '%s'",
+							t2, attr, t1, expr)
+					}
+				}
+
+				return BuildTemplate(instParam, "")
+			},
+
+			AttributeManifests: []*istio_policy_v1beta1.AttributeManifest{
+				{
+					Attributes: map[string]*istio_policy_v1beta1.AttributeManifest_AttributeInfo{
+
+						"adapter_template_mesos.output.source_pod_uid": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.source_pod_ip": {
+							ValueType: istio_policy_v1beta1.IP_ADDRESS,
+						},
+
+						"adapter_template_mesos.output.source_pod_name": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.source_labels": {
+							ValueType: istio_policy_v1beta1.STRING_MAP,
+						},
+
+						"adapter_template_mesos.output.source_namespace": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.source_service_account_name": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.source_host_ip": {
+							ValueType: istio_policy_v1beta1.IP_ADDRESS,
+						},
+
+						"adapter_template_mesos.output.source_workload_uid": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.source_workload_name": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.source_workload_namespace": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.source_owner": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_pod_uid": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_pod_ip": {
+							ValueType: istio_policy_v1beta1.IP_ADDRESS,
+						},
+
+						"adapter_template_mesos.output.destination_pod_name": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_container_name": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_labels": {
+							ValueType: istio_policy_v1beta1.STRING_MAP,
+						},
+
+						"adapter_template_mesos.output.destination_namespace": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_service_account_name": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_host_ip": {
+							ValueType: istio_policy_v1beta1.IP_ADDRESS,
+						},
+
+						"adapter_template_mesos.output.destination_owner": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_workload_uid": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_workload_name": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+
+						"adapter_template_mesos.output.destination_workload_namespace": {
+							ValueType: istio_policy_v1beta1.STRING,
+						},
+					},
+				},
+			},
+
+			// DispathGenAttrs dispatches the instance to the attribute producing handler.
+			DispatchGenAttrs: func(ctx context.Context, handler adapter.Handler, inst interface{}, attrs attribute.Bag,
+				mapper template.OutputMapperFn) (*attribute.MutableBag, error) {
+
+				// Convert the instance from the generic interface{}, to their specialized type.
+				instance := inst.(*adapter_template_mesos.Instance)
+
+				// Invoke the handler.
+				out, err := handler.(adapter_template_mesos.Handler).GenerateMesosAttributes(ctx, instance)
+				if err != nil {
+					return nil, err
+				}
+
+				// Construct a wrapper bag around the returned output message and pass it to the output mapper
+				// to map $out values back to the destination attributes in the ambient context.
+				const fullOutName = "adapter_template_mesos.output."
+				outBag := newWrapperAttrBag(
+					func(name string) (value interface{}, found bool) {
+						field := strings.TrimPrefix(name, fullOutName)
+						if len(field) != len(name) {
+							if !out.WasSet(field) {
+								return nil, false
+							}
+							switch field {
+
+							case "source_pod_uid":
+
+								return out.SourcePodUid, true
+
+							case "source_pod_ip":
+
+								return []uint8(out.SourcePodIp), true
+
+							case "source_pod_name":
+
+								return out.SourcePodName, true
+
+							case "source_labels":
+
+								return out.SourceLabels, true
+
+							case "source_namespace":
+
+								return out.SourceNamespace, true
+
+							case "source_service_account_name":
+
+								return out.SourceServiceAccountName, true
+
+							case "source_host_ip":
+
+								return []uint8(out.SourceHostIp), true
+
+							case "source_workload_uid":
+
+								return out.SourceWorkloadUid, true
+
+							case "source_workload_name":
+
+								return out.SourceWorkloadName, true
+
+							case "source_workload_namespace":
+
+								return out.SourceWorkloadNamespace, true
+
+							case "source_owner":
+
+								return out.SourceOwner, true
+
+							case "destination_pod_uid":
+
+								return out.DestinationPodUid, true
+
+							case "destination_pod_ip":
+
+								return []uint8(out.DestinationPodIp), true
+
+							case "destination_pod_name":
+
+								return out.DestinationPodName, true
+
+							case "destination_container_name":
+
+								return out.DestinationContainerName, true
+
+							case "destination_labels":
+
+								return out.DestinationLabels, true
+
+							case "destination_namespace":
+
+								return out.DestinationNamespace, true
+
+							case "destination_service_account_name":
+
+								return out.DestinationServiceAccountName, true
+
+							case "destination_host_ip":
+
+								return []uint8(out.DestinationHostIp), true
+
+							case "destination_owner":
+
+								return out.DestinationOwner, true
+
+							case "destination_workload_uid":
+
+								return out.DestinationWorkloadUid, true
+
+							case "destination_workload_name":
+
+								return out.DestinationWorkloadName, true
+
+							case "destination_workload_namespace":
+
+								return out.DestinationWorkloadNamespace, true
+
+							default:
+								return nil, false
+							}
+						}
+						return attrs.Get(name)
+					},
+					func() []string { return attrs.Names() },
+					func() { attrs.Done() },
+					func() string { return attrs.String() },
+				)
+
+				// Mapper will map back $out values in the outBag into ambient attribute names, and return
+				// a bag with these additional attributes.
+				return mapper(outBag)
+			},
+
+			// CreateInstanceBuilder creates a new template.InstanceBuilderFN based on the supplied instance parameters. It uses
+			// the expression builder to create a new instance of a builder struct for the instance type. Created
+			// InstanceBuilderFn closes over this struct. When InstanceBuilderFn is called it, in turn, calls into
+			// the builder with an attribute bag.
+			//
+			// See template.CreateInstanceBuilderFn for more details.
+			CreateInstanceBuilder: func(instanceName string, param proto.Message, expb *compiled.ExpressionBuilder) (template.InstanceBuilderFn, error) {
+
+				// If the parameter is nil. Simply return nil. The builder, then, will also return nil.
+				if param == nil {
+					return func(attr attribute.Bag) (interface{}, error) {
+						return nil, nil
+					}, nil
+				}
+
+				// Instantiate a new builder for the instance.
+				builder, errp := newBuilder_adapter_template_mesos_Template(expb, param.(*adapter_template_mesos.InstanceParam))
+				if !errp.IsNil() {
+					return nil, errp.AsCompilationError(instanceName)
+				}
+
+				return func(attr attribute.Bag) (interface{}, error) {
+					// Use the instantiated builder (that this fn closes over) to construct an instance.
+					e, errp := builder.build(attr)
+					if !errp.IsNil() {
+						err := errp.AsEvaluationError(instanceName)
+						log.Error(err.Error())
+						return nil, err
+					}
+
+					e.Name = instanceName
+					return e, nil
+				}, nil
+			},
+
+			// CreateOutputExpressions creates a set of compiled expressions based on the supplied instance parameters.
+			//
+			// See template.CreateOutputExpressionsFn for more details.
+			CreateOutputExpressions: func(
+				instanceParam proto.Message,
+				finder ast.AttributeDescriptorFinder,
+				expb *compiled.ExpressionBuilder) (map[string]compiled.Expression, error) {
+				var err error
+				var expType istio_policy_v1beta1.ValueType
+
+				// Convert the generic instanceParam to its specialized type.
+				param := instanceParam.(*adapter_template_mesos.InstanceParam)
+
+				// Create a mapping of expressions back to the attribute names.
+				expressions := make(map[string]compiled.Expression, len(param.AttributeBindings))
+
+				const fullOutName = "adapter_template_mesos.output."
 				for attrName, outExpr := range param.AttributeBindings {
 					attrInfo := finder.GetAttribute(attrName)
 					if attrInfo == nil {
@@ -2388,6 +2800,197 @@ func (b *builder_adapter_template_kubernetes_Template) build(
 	_ = vIface
 
 	r := &adapter_template_kubernetes.Instance{}
+
+	if b.bldSourceUid != nil {
+
+		vString, err = b.bldSourceUid.EvaluateString(attrs)
+		if err != nil {
+			return nil, template.NewErrorPath("SourceUid", err)
+		}
+		r.SourceUid = vString
+
+	}
+
+	if b.bldSourceIp != nil {
+
+		if vIface, err = b.bldSourceIp.Evaluate(attrs); err != nil {
+			return nil, template.NewErrorPath("SourceIp", err)
+		}
+
+		r.SourceIp = vIface.(net.IP)
+
+	}
+
+	if b.bldDestinationUid != nil {
+
+		vString, err = b.bldDestinationUid.EvaluateString(attrs)
+		if err != nil {
+			return nil, template.NewErrorPath("DestinationUid", err)
+		}
+		r.DestinationUid = vString
+
+	}
+
+	if b.bldDestinationIp != nil {
+
+		if vIface, err = b.bldDestinationIp.Evaluate(attrs); err != nil {
+			return nil, template.NewErrorPath("DestinationIp", err)
+		}
+
+		r.DestinationIp = vIface.(net.IP)
+
+	}
+
+	if b.bldDestinationPort != nil {
+
+		vInt, err = b.bldDestinationPort.EvaluateInteger(attrs)
+		if err != nil {
+			return nil, template.NewErrorPath("DestinationPort", err)
+		}
+		r.DestinationPort = vInt
+
+	}
+
+	return r, template.ErrorPath{}
+}
+
+// builder struct for constructing an instance of Template.
+type builder_adapter_template_mesos_Template struct {
+
+	// builder for field source_uid: string.
+
+	bldSourceUid compiled.Expression
+
+	// builder for field source_ip: net.IP.
+
+	bldSourceIp compiled.Expression
+
+	// builder for field destination_uid: string.
+
+	bldDestinationUid compiled.Expression
+
+	// builder for field destination_ip: net.IP.
+
+	bldDestinationIp compiled.Expression
+
+	// builder for field destination_port: int64.
+
+	bldDestinationPort compiled.Expression
+} // builder_adapter_template_mesos_Template
+
+// Instantiates and returns a new builder for Template, based on the provided instance parameter.
+func newBuilder_adapter_template_mesos_Template(
+	expb *compiled.ExpressionBuilder,
+	param *adapter_template_mesos.InstanceParam) (*builder_adapter_template_mesos_Template, template.ErrorPath) {
+
+	// If the parameter is nil. Simply return nil. The builder, then, will also return nil.
+	if param == nil {
+		return nil, template.ErrorPath{}
+	}
+
+	b := &builder_adapter_template_mesos_Template{}
+
+	var exp compiled.Expression
+	_ = exp
+	var err error
+	_ = err
+	var errp template.ErrorPath
+	_ = errp
+	var expType istio_policy_v1beta1.ValueType
+	_ = expType
+
+	if param.SourceUid == "" {
+		b.bldSourceUid = nil
+	} else {
+		b.bldSourceUid, expType, err = expb.Compile(param.SourceUid)
+		if err != nil {
+			return nil, template.NewErrorPath("SourceUid", err)
+		}
+
+		if expType != istio_policy_v1beta1.STRING {
+			err = fmt.Errorf("instance field type mismatch: expected='%v', actual='%v', expression='%s'", istio_policy_v1beta1.STRING, expType, param.SourceUid)
+			return nil, template.NewErrorPath("SourceUid", err)
+		}
+
+	}
+
+	if param.SourceIp == "" {
+		b.bldSourceIp = nil
+	} else {
+		b.bldSourceIp, expType, err = expb.Compile(param.SourceIp)
+		if err != nil {
+			return nil, template.NewErrorPath("SourceIp", err)
+		}
+
+	}
+
+	if param.DestinationUid == "" {
+		b.bldDestinationUid = nil
+	} else {
+		b.bldDestinationUid, expType, err = expb.Compile(param.DestinationUid)
+		if err != nil {
+			return nil, template.NewErrorPath("DestinationUid", err)
+		}
+
+		if expType != istio_policy_v1beta1.STRING {
+			err = fmt.Errorf("instance field type mismatch: expected='%v', actual='%v', expression='%s'", istio_policy_v1beta1.STRING, expType, param.DestinationUid)
+			return nil, template.NewErrorPath("DestinationUid", err)
+		}
+
+	}
+
+	if param.DestinationIp == "" {
+		b.bldDestinationIp = nil
+	} else {
+		b.bldDestinationIp, expType, err = expb.Compile(param.DestinationIp)
+		if err != nil {
+			return nil, template.NewErrorPath("DestinationIp", err)
+		}
+
+	}
+
+	if param.DestinationPort == "" {
+		b.bldDestinationPort = nil
+	} else {
+		b.bldDestinationPort, expType, err = expb.Compile(param.DestinationPort)
+		if err != nil {
+			return nil, template.NewErrorPath("DestinationPort", err)
+		}
+
+		if expType != istio_policy_v1beta1.INT64 {
+			err = fmt.Errorf("instance field type mismatch: expected='%v', actual='%v', expression='%s'", istio_policy_v1beta1.INT64, expType, param.DestinationPort)
+			return nil, template.NewErrorPath("DestinationPort", err)
+		}
+
+	}
+
+	return b, template.ErrorPath{}
+}
+
+// build and return the instance, given a set of attributes.
+func (b *builder_adapter_template_mesos_Template) build(
+	attrs attribute.Bag) (*adapter_template_mesos.Instance, template.ErrorPath) {
+
+	if b == nil {
+		return nil, template.ErrorPath{}
+	}
+
+	var err error
+	_ = err
+	var errp template.ErrorPath
+	_ = errp
+	var vBool bool
+	_ = vBool
+	var vInt int64
+	_ = vInt
+	var vString string
+	_ = vString
+	var vDouble float64
+	_ = vDouble
+	var vIface interface{}
+	_ = vIface
+
+	r := &adapter_template_mesos.Instance{}
 
 	if b.bldSourceUid != nil {
 

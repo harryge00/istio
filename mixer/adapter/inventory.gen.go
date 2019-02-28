@@ -26,6 +26,7 @@ import (
 	kubernetesenv "istio.io/istio/mixer/adapter/kubernetesenv"
 	list "istio.io/istio/mixer/adapter/list"
 	memquota "istio.io/istio/mixer/adapter/memquota"
+	mesosenv "istio.io/istio/mixer/adapter/mesosenv"
 	noop "istio.io/istio/mixer/adapter/noop"
 	opa "istio.io/istio/mixer/adapter/opa"
 	prometheus "istio.io/istio/mixer/adapter/prometheus"
@@ -52,6 +53,7 @@ func Inventory() []adptr.InfoFn {
 		kubernetesenv.GetInfo,
 		list.GetInfo,
 		memquota.GetInfo,
+		mesosenv.GetInfo,
 		noop.GetInfo,
 		opa.GetInfo,
 		prometheus.GetInfo,
