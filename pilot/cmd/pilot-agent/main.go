@@ -229,8 +229,19 @@ var (
 				opts["PodName"] = os.Getenv("POD_NAME")
 				opts["PodNamespace"] = os.Getenv("POD_NAMESPACE")
 
+				taskID := os.Getenv("MESOS_TASK_ID")
+				if lastIndex := strings.LastIndex(taskID, "."); lastIndex > 0 {
+					// Trim container name from taskID
+					taskID = taskID[0:lastIndex]
+				}
+				opts["MESOS_TASK_ID"] = taskID
+
 				// protobuf encoding of IP_ADDRESS type
-				opts["PodIP"] = base64.StdEncoding.EncodeToString(net.ParseIP(os.Getenv("INSTANCE_IP")))
+				podIP := os.Getenv("INSTANCE_IP")
+				if podIP == "" {
+					podIP = os.Getenv("HOST")
+				}
+				opts["PodIP"] = base64.StdEncoding.EncodeToString(net.ParseIP(podIP))
 
 				if proxyConfig.ControlPlaneAuthPolicy == meshconfig.AuthenticationPolicy_MUTUAL_TLS {
 					opts["ControlPlaneAuth"] = "enable"
