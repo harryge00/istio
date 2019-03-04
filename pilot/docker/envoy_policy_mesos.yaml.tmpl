@@ -129,7 +129,7 @@ static_resources:
                       destination.service.namespace:
                         string_value: {{ .PodNamespace }}
                       destination.uid:
-                        string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                        string_value: kubernetes://{{ .MESOS_TASK_ID }}
                       destination.namespace:
                         string_value: {{.PodNamespace }}
                       destination.ip:
@@ -139,14 +139,14 @@ static_resources:
                       context.reporter.kind:
                         string_value: inbound
                       context.reporter.uid:
-                        string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                        string_value: kubernetes://{{ .MESOS_TASK_ID }}
               transport:
                 check_cluster: mixer_check_server
                 report_cluster: mixer_report_server
                 attributes_for_mixer_proxy:
                   attributes:
                     source.uid:
-                      string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                      string_value: kubernetes://{{ .MESOS_TASK_ID }}
             name: mixer
           - name: envoy.router
           route_config:
@@ -214,7 +214,7 @@ static_resources:
                       destination.service.namespace:
                         string_value: {{ .PodNamespace }}
                       destination.uid:
-                        string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                        string_value: kubernetes://{{ .MESOS_TASK_ID }}
                       destination.namespace:
                         string_value: {{.PodNamespace }}
                       destination.ip:
@@ -224,14 +224,14 @@ static_resources:
                       context.reporter.kind:
                         string_value: inbound
                       context.reporter.uid:
-                        string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                        string_value: kubernetes://{{ .MESOS_TASK_ID }}}}
               transport:
                 check_cluster: mixer_check_server
                 report_cluster: mixer_report_server
                 attributes_for_mixer_proxy:
                   attributes:
                     source.uid:
-                      string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                      string_value: kubernetes://{{ .MESOS_TASK_ID }}
             name: mixer
           - name: envoy.router
           route_config:

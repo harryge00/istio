@@ -19,7 +19,7 @@ type (
 	// internal interface used to support testing
 	cacheController interface {
 		Run(<-chan struct{})
-		PodTask(string) (*TaskInfo, bool)
+		PodTask(string, int) (*TaskInfo, bool)
 	}
 
 	controllerImpl struct {
@@ -48,16 +48,16 @@ type PodInfo struct {
 
 // TaskInstance is abstract model for a task instance.
 type TaskInstance struct {
-	ContainerName string `json:"containerName"`
 	// IP is containerIP
 	ContainerIP net.IP `json:"IP"`
 	HostIP      net.IP `json:"hostIP"`
-	// HostPort list
-	HostPorts []int `json:"hostports"`
+	// ContainerName to its list of host ports
+	ContainerPortList map[string][]int `json:"containerPortList"`
 }
 
 // Used for the GenerateMesosAttributes
 type TaskInfo struct {
+	PodName       string            `json:"containerName"`
 	ContainerName string            `json:"containerName"`
 	Labels        map[string]string `json:"labels"`
 	// IP is containerIP
@@ -116,10 +116,9 @@ func (c *controllerImpl) Run(stop <-chan struct{}) {
 			// TODO: supports graceful shutdown
 			// Delete a pod from podMap
 			case "StopPod":
-				pod := podName
-				c.env.Logger().Debugf("Stop Pod: %v", pod)
+				c.env.Logger().Debugf("Stop Pod: %v", podName)
 				c.Lock()
-				delete(c.podMap, pod)
+				delete(c.podMap, podName)
 				c.env.Logger().Debugf("podMap: %v", c.podMap)
 				c.Unlock()
 			case "StartPod":
@@ -168,7 +167,7 @@ func (c *controllerImpl) Run(stop <-chan struct{}) {
 	return
 }
 
-func (c *controllerImpl) PodTask(uid string) (task *TaskInfo, exists bool) {
+func (c *controllerImpl) PodTask(uid string, port int) (task *TaskInfo, exists bool) {
 	if !strings.HasPrefix(uid, kubePrefix) {
 		// Not a valid taskID for mesos
 		return
@@ -179,21 +178,28 @@ func (c *controllerImpl) PodTask(uid string) (task *TaskInfo, exists bool) {
 		c.env.Logger().Warningf("Illegal UID: %v", uid)
 		return
 	}
-	podID := parts[len(parts)-2]
+	podName := parts[len(parts)-2]
+
 	c.RLock()
 	defer c.RUnlock()
-	pod, exists := c.podMap[podID]
+	pod, exists := c.podMap["/"+podName]
 	if !exists {
-		c.env.Logger().Warningf("Pod doesn't exists! UID: %v", uid)
+		c.env.Logger().Warningf("Cannot find pod! UID: %v, podID: %v", uid, podName)
 		return
 	}
+
 	task = &TaskInfo{
-		Labels: pod.Labels,
+		PodName: podName,
+		Labels:  pod.Labels,
 	}
 	taskInst := c.taskMap[taskID]
 	if taskInst != nil {
 		task.ContainerIP = taskInst.ContainerIP
 		task.HostIP = taskInst.HostIP
+		// TODO: support multiple containers
+		for con := range taskInst.ContainerPortList {
+			task.ContainerName = con
+		}
 	}
 	return
 }
@@ -201,10 +207,31 @@ func (c *controllerImpl) PodTask(uid string) (task *TaskInfo, exists bool) {
 func (c *controllerImpl) deleteTask(statusUpdate *marathon.EventStatusUpdate) {
 	c.Lock()
 	defer c.Unlock()
-	delete(c.taskMap, statusUpdate.TaskID)
+	lastIndex := strings.LastIndex(statusUpdate.TaskID, ".")
+	if lastIndex <= 0 || lastIndex >= len(statusUpdate.TaskID)-1 {
+		return
+	}
+	taskID := statusUpdate.TaskID[0:lastIndex]
+	containerName := statusUpdate.TaskID[lastIndex+1:]
+
+	task := c.taskMap[taskID]
+	if task == nil {
+		return
+	}
+	if len(task.ContainerPortList) <= 1 {
+		// Only one container of the pod left, delete it
+		delete(c.taskMap, taskID)
+	} else {
+		// Multiple containers of the pod alive, delete the container first
+		delete(task.ContainerPortList, containerName)
+	}
 }
 
 func (c *controllerImpl) addTask(statusUpdate *marathon.EventStatusUpdate) {
+	if len(statusUpdate.Ports) == 0 {
+		// Skip containers without host ports
+		return
+	}
 	c.Lock()
 	defer c.Unlock()
 	_, exist := c.podMap[statusUpdate.AppID]
@@ -213,15 +240,27 @@ func (c *controllerImpl) addTask(statusUpdate *marathon.EventStatusUpdate) {
 		return
 	}
 
-	task := TaskInstance{
-		HostIP: net.ParseIP(statusUpdate.Host),
+	lastIndex := strings.LastIndex(statusUpdate.TaskID, ".")
+	if lastIndex <= 0 || lastIndex >= len(statusUpdate.TaskID)-1 {
+		c.env.Logger().Warningf("How could this possible? %v", statusUpdate)
+		return
 	}
-	if len(statusUpdate.IPAddresses) > 0 {
-		task.ContainerIP = net.ParseIP(statusUpdate.IPAddresses[0].IPAddress)
-	}
-	task.HostPorts = statusUpdate.Ports
+	taskID := statusUpdate.TaskID[0:lastIndex]
+	containerName := statusUpdate.TaskID[lastIndex+1:]
 
-	c.taskMap[statusUpdate.TaskID] = &task
+	task := c.taskMap[taskID]
+	if task == nil {
+		task = &TaskInstance{
+			HostIP:            net.ParseIP(statusUpdate.Host),
+			ContainerPortList: make(map[string][]int),
+		}
+		if len(statusUpdate.IPAddresses) > 0 {
+			task.ContainerIP = net.ParseIP(statusUpdate.IPAddresses[0].IPAddress)
+		}
+		c.taskMap[taskID] = task
+	}
+	task.ContainerPortList[containerName] = statusUpdate.Ports
+
 	c.env.Logger().Infof("Added a task: %v", task)
 }
 
@@ -278,18 +317,22 @@ func (c *controllerImpl) syncPodStatus(status *marathon.PodStatus) {
 				containerIP = net.Addresses[0]
 			}
 		}
-		for _, con := range inst.Containers {
-			taskInst := TaskInstance{
-				HostIP:      net.ParseIP(inst.AgentHostname),
-				ContainerIP: net.ParseIP(containerIP),
-			}
-			taskInst.HostPorts = make([]int, len(con.Endpoints))
-			for i, ep := range con.Endpoints {
-				taskInst.HostPorts[i] = ep.AllocatedHostPort
-			}
-			c.taskMap[con.ContainerID] = &taskInst
-			c.env.Logger().Debugf("New Inst:%v", taskInst)
+		taskInst := TaskInstance{
+			HostIP:            net.ParseIP(inst.AgentHostname),
+			ContainerIP:       net.ParseIP(containerIP),
+			ContainerPortList: make(map[string][]int),
 		}
+		for _, con := range inst.Containers {
+			if len(con.Endpoints) == 0 {
+				continue
+			}
+			taskInst.ContainerPortList[con.Name] = make([]int, len(con.Endpoints))
+			for i, ep := range con.Endpoints {
+				taskInst.ContainerPortList[con.Name][i] = ep.AllocatedHostPort
+			}
+		}
+		c.taskMap[inst.ID] = &taskInst
+		c.env.Logger().Debugf("New Inst %v: %v", inst.ID, taskInst)
 	}
 
 	return
