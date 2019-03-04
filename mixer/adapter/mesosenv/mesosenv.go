@@ -154,17 +154,31 @@ func keyFromUID(uid string) (podKey string, taskKey string) {
 func (h *handler) GenerateMesosAttributes(ctx context.Context, inst *mtmpl.Instance) (*mtmpl.Output, error) {
 	out := mtmpl.NewOutput()
 	h.env.Logger().Debugf("GeneratemesosAttributes %v ", inst)
-	if task, found := h.mesosCache.PodTask(inst.DestinationUid); found {
-		h.env.Logger().Debugf("task %v ", task)
-
-		out.SetDestinationLabels(task.Labels)
-		out.SetDestinationHostIp(task.HostIP)
-		out.SetDestinationPodIp(task.ContainerIP)
+	if inst.DestinationUid != "" && inst.DestinationUid != "unknown" {
+		if task, found := h.mesosCache.PodTask(inst.DestinationUid, int(inst.DestinationPort)); found {
+			h.env.Logger().Debugf("task %v ", task)
+			out.SetDestinationLabels(task.Labels)
+			out.SetDestinationHostIp(task.HostIP)
+			out.SetDestinationPodIp(task.ContainerIP)
+			out.SetDestinationContainerName(task.ContainerName)
+			out.SetDestinationPodName(task.PodName)
+			//} else {
+			//	h.env.Logger().Warningf("Destination Pod doesn't exists! Inst: %v", inst)
+		}
 	}
 
-	if task, found := h.mesosCache.PodTask(inst.SourceUid); found {
-		h.env.Logger().Debugf("task %v ", task)
-		out.SetSourceLabels(task.Labels)
+	if inst.SourceUid != "" && inst.SourceUid != "unknown" {
+		if task, found := h.mesosCache.PodTask(inst.SourceUid, 0); found {
+			h.env.Logger().Debugf("task %v ", task)
+			out.SetSourceLabels(task.Labels)
+			out.SetSourceHostIp(task.HostIP)
+			out.SetSourcePodName(task.PodName)
+			out.SetSourcePodIp(task.ContainerIP)
+			out.SetSourcePodName(task.ContainerName)
+
+			//} else {
+			//	h.env.Logger().Warningf("Source Pod doesn't exists! Inst: %v", inst)
+		}
 	}
 	//sID := inst.SourceUid
 	//for
