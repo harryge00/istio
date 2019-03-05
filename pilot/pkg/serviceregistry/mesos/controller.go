@@ -511,8 +511,19 @@ func (c *Controller) Run(stop <-chan struct{}) {
 				log.Infof("podMap: %v", c.podMap)
 				c.Unlock()
 			case "StartPod":
+				var podInfo *PodInfo
 				// Add a new pod to podMap
-				podInfo := getPodFromDepInfo(depInfo.Plan.Target.Pods, podName)
+				if depInfo.Plan.Target == nil {
+					// newer Marathon version does not have "target"
+					podStatus, err := c.client.PodStatus(podName)
+					if err != nil {
+						log.Errorf("Cannot get Podstatus: %v", podStatus)
+						continue
+					}
+					podInfo = getPodInfo(podStatus)
+				} else {
+					podInfo = getPodFromDepInfo(depInfo.Plan.Target.Pods, podName)
+				}
 				if podInfo != nil {
 					c.Lock()
 					c.podMap[podName] = podInfo
