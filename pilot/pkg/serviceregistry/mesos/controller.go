@@ -90,20 +90,20 @@ func NewController(options ControllerOptions) (*Controller, error) {
 
 	// Register for events
 
-	depInfoChan, err := client.AddEventsListener(marathon.EventIDDeploymentInfo)
+	depInfoChan, err := client.AddEventsListener(marathon.EventIDDeploymentSuccess)
 	if err != nil {
 		return nil, err
 	}
-	statusUpdateChan, err := client.AddEventsListener(marathon.EventIDStatusUpdate)
-	if err != nil {
-		return nil, err
-	}
+	//statusUpdateChan, err := client.AddEventsListener(marathon.EventIDStatusUpdate)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	c := &Controller{
 		client:           client,
 		podMap:           make(map[string]*PodInfo),
 		depInfoChan:      depInfoChan,
-		statusUpdateChan: statusUpdateChan,
+		//statusUpdateChan: statusUpdateChan,
 		syncPeriod:       options.Interval,
 	}
 
@@ -131,7 +131,7 @@ func (c *Controller) initPodmap() error {
 			log.Errorf("Failed to get pod %v status: %v", pod.ID, err)
 			continue
 		}
-		podInfo := getPodInfo(podStatus)
+		podInfo := getPodInfoFromStatus(podStatus)
 		if podInfo == nil {
 			continue
 		}
@@ -483,15 +483,15 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			break
 		case event := <-c.depInfoChan:
 			// deployment_info event
-			var depInfo *marathon.EventDeploymentInfo
-			depInfo = event.Event.(*marathon.EventDeploymentInfo)
-			if depInfo.CurrentStep == nil {
+			var depInfo *marathon.EventDeploymentSuccess
+			depInfo = event.Event.(*marathon.EventDeploymentSuccess)
+			if depInfo.Plan == nil || len(depInfo.Plan.Steps) == 0 {
 				log.Warnf("Illegal depInfo: %v", depInfo)
 				continue
 			}
-			actions := depInfo.CurrentStep.Actions
+			actions := depInfo.Plan.Steps[0].Actions
 			if len(actions) == 0 {
-				log.Warnf("Illegal depInfo: %v", depInfo)
+				log.Warnf("Illegal actions: %v", actions)
 				continue
 			} else if actions[0].Pod == "" {
 				// Not a pod event, skip
@@ -499,80 +499,46 @@ func (c *Controller) Run(stop <-chan struct{}) {
 			}
 
 			podName := actions[0].Pod
+			log.Infof("Action: %v Pod: %v", actions[0].Action, podName)
 
 			switch actions[0].Action {
 			// TODO: supports graceful shutdown
 			// Delete a pod from podMap
 			case "StopPod":
-				pod := podName
-				log.Infof("Stop Pod: %v", pod)
 				c.Lock()
-				delete(c.podMap, pod)
+				delete(c.podMap, podName)
 				log.Infof("podMap: %v", c.podMap)
+				printPodMap(c.podMap)
 				c.Unlock()
 			case "StartPod":
-				var podInfo *PodInfo
-				// Add a new pod to podMap
-				if depInfo.Plan.Target == nil {
-					// newer Marathon version does not have "target"
-					podStatus, err := c.client.PodStatus(podName)
-					if err != nil {
-						log.Errorf("Cannot get Podstatus: %v", podStatus)
-						continue
-					}
-					podInfo = getPodInfo(podStatus)
-				} else {
-					podInfo = getPodFromDepInfo(depInfo.Plan.Target.Pods, podName)
-				}
-				if podInfo != nil {
-					c.Lock()
-					c.podMap[podName] = podInfo
-					log.Infof("Add pod %v", podInfo.HostNames)
-					printPodMap(c.podMap)
-					c.Unlock()
-				}
+				c.updatePodInfo(podName)
 			case "RestartPod":
-				// Update a existing pod in podMap
-				podInfo := getPodFromDepInfo(depInfo.Plan.Target.Pods, podName)
-				if podInfo == nil {
-					continue
-				}
-				c.Lock()
-				if c.podMap[podName] == nil {
-					log.Warnf("Pod %s restarted, but no record in podMap: %v", podName, c.podMap)
-					c.podMap[podName] = podInfo
-				} else {
-					c.podMap[podName].Labels = podInfo.Labels
-					c.podMap[podName].HostNames = podInfo.HostNames
-					c.podMap[podName].PortList = podInfo.PortList
-					log.Infof("Update pod %v to podMap: %v", podInfo.HostNames, c.podMap)
-				}
-				c.Unlock()
+				c.updatePodInfo(podName)
 			case "ScalePod":
-				log.Infof("Scaling pod: %v", actions[0])
+				c.updatePodInfo(podName)
 			}
 
-		case event := <-c.statusUpdateChan:
-			// status_update_event
-			var statusUpdate *marathon.EventStatusUpdate
-			statusUpdate = event.Event.(*marathon.EventStatusUpdate)
-
-			switch statusUpdate.TaskStatus {
-			case "TASK_RUNNING":
-				if len(statusUpdate.Ports) == 0 {
-					// No need to update a task without hostPorts
-					// Like a proxy
-					continue
-				}
-				c.addTaskToPod(statusUpdate)
-			case "TASK_KILLED":
-				c.deleteTaskFromPod(statusUpdate)
-			}
+		//case event := <-c.statusUpdateChan:
+		//	// status_update_event
+		//	var statusUpdate *marathon.EventStatusUpdate
+		//	statusUpdate = event.Event.(*marathon.EventStatusUpdate)
+		//
+		//	switch statusUpdate.TaskStatus {
+		//	case "TASK_RUNNING":
+		//		if len(statusUpdate.Ports) == 0 {
+		//			// No need to update a task without hostPorts
+		//			// Like a proxy
+		//			continue
+		//		}
+		//		c.addTaskToPod(statusUpdate)
+		//	case "TASK_KILLED":
+		//		c.deleteTaskFromPod(statusUpdate)
+		//	}
 		}
 	}
 
 	c.client.RemoveEventsListener(c.depInfoChan)
-	c.client.RemoveEventsListener(c.statusUpdateChan)
+	//c.client.RemoveEventsListener(c.statusUpdateChan)
 }
 
 // Trim the suffix after the last "."
@@ -596,6 +562,24 @@ func (c *Controller) deleteTaskFromPod(statusUpdate *marathon.EventStatusUpdate)
 		return
 	}
 	delete(podInfo.InstanceMap, taskID)
+}
+
+func (c *Controller) updatePodInfo(podName string) {
+	podStatus, err := c.client.PodStatus(podName)
+	if err != nil {
+		log.Errorf("Cannot get %v Podstatus: %v", podName, err)
+		return
+	}
+	log.Infof("Podstatus: %v %v", podName, podStatus)
+	podInfo := getPodInfoFromStatus(podStatus)
+	if podInfo == nil {
+		return
+	}
+	c.Lock()
+	c.podMap[podName] = podInfo
+	log.Infof("Add pod %v", podInfo.HostNames)
+	printPodMap(c.podMap)
+	c.Unlock()
 }
 
 func (c *Controller) addTaskToPod(statusUpdate *marathon.EventStatusUpdate) {
@@ -704,7 +688,7 @@ func convertPod(pod *marathon.Pod) *PodInfo {
 	return &info
 }
 
-func getPodInfo(status *marathon.PodStatus) *PodInfo {
+func getPodInfoFromStatus(status *marathon.PodStatus) *PodInfo {
 	svcNames := status.Spec.Labels[ISTIO_SERVICE_LABEL]
 	if svcNames == "" {
 		log.Debugf("No need to process the pod: %v", status.ID)
@@ -774,6 +758,45 @@ func getPodInfo(status *marathon.PodStatus) *PodInfo {
 	return podInfo
 }
 
+
+func getPodInfoFromSpec(spec *marathon.Pod) *PodInfo {
+	svcNames := spec.Labels[ISTIO_SERVICE_LABEL]
+	if svcNames == "" {
+		log.Debugf("No need to process the pod: %v", spec.ID)
+		return nil
+	}
+	svcs := strings.Split(svcNames, ",")
+	hostMap := make(map[string]bool)
+	for _, svc := range svcs {
+		hostName := fmt.Sprintf("%s.%s", svc, DomainSuffix)
+		//log.Infof("svc:%v, hostName:%v", svc, hostName)
+		hostMap[hostName] = true
+	}
+
+	podInfo := &PodInfo{
+		HostNames:   hostMap,
+		InstanceMap: make(map[string]*TaskInstance),
+		Labels:      spec.Labels,
+	}
+	// A map of container ports
+	portMap := make(map[string]*model.Port)
+	for _, con := range spec.Containers {
+		for _, ep := range con.Endpoints {
+			port := model.Port{
+				Name:     ep.Name,
+				Protocol: convertProtocol(ep.Protocol),
+				Port:     ep.ContainerPort,
+			}
+			if spec.Labels[ISTIO_MIXER_LABEL] != "" && strings.Contains(ep.Name, "grpc") {
+				port.Protocol = model.ProtocolGRPC
+				log.Infof("GPRC port: %v", ep)
+			}
+			portMap[ep.Name] = &port
+			podInfo.PortList = append(podInfo.PortList, &port)
+		}
+	}
+	return podInfo
+}
 // TODO: use TCP/UDP or other protocol
 func convertProtocol(protocols []string) model.Protocol {
 	return model.ProtocolHTTP
