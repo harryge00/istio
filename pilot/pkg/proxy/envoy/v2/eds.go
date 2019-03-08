@@ -641,6 +641,8 @@ func connectionID(node string) string {
 // Because containers in the same host cannot access each other through hostIP + hostPort,
 // containerIP : containerPort is used.
 // TODO: determine registry type and only used in Mesos.
+// E.g. Original LbEndpoints: [172.31.1.1:31748,172.31.254.82:9080, 172.31.1.2:31230,172.31.254.22:9080, 172.31.1.3:31030,172.31.254.42:9080]
+// For a proxy running at 172.31.1.2. prune LbEndpoints to [172.31.1.1:31748, 172.31.254.22:9080, 172.31.1.3:31030]
 func pruneLoadAssignment(con *XdsConnection, assignment *xdsapi.ClusterLoadAssignment) *xdsapi.ClusterLoadAssignment {
 	// No need to prune if there is less than 2 endpoints.
 	if con.PeerIP == "" || con.PeerIP == "0.0.0.0" {
@@ -662,7 +664,8 @@ func pruneLoadAssignment(con *XdsConnection, assignment *xdsapi.ClusterLoadAssig
 		for i, lbep := range ep.LbEndpoints {
 			// HostIP
 			adsLog.Debugf("socketAddr: %v", lbep.Endpoint.Address.GetSocketAddress().Address)
-			if i%2 == 0 {
+			// We assume the even endpoint is hostIP:hostPort, odd one is containerIP:containerPort
+			if (i & 1) == 0 {
 				if lbep.Endpoint.Address.GetSocketAddress().Address == con.PeerIP {
 					adsLog.Debugf("Found a endpoint with the same host IP: %v for %v", con.PeerIP, assignment.ClusterName)
 					sameHost = true
