@@ -117,6 +117,10 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 			config.HTTPBasicAuthUser = paramsProto.HttpBasicAuthUser
 			config.HTTPBasicPassword = paramsProto.HttpBasicAuthPassword
 		}
+		if !strings.HasPrefix(config.URL, "http") {
+			env.Logger().Errorf("marathon address does not specify http protocol. Use http://")
+			config.URL = "http://" + config.URL
+		}
 		env.Logger().Infof("Creating a client, Marathon Config: %s", config)
 
 		client, err := marathon.NewClient(config)
@@ -156,7 +160,7 @@ func (h *handler) GenerateMesosAttributes(ctx context.Context, inst *mtmpl.Insta
 	h.env.Logger().Debugf("GeneratemesosAttributes %v ", inst)
 	if inst.DestinationUid != "" && inst.DestinationUid != "unknown" {
 		if task, found := h.mesosCache.PodTask(inst.DestinationUid, int(inst.DestinationPort)); found {
-			h.env.Logger().Debugf("task %v ", task)
+			h.env.Logger().Debugf("Destination task %v ", task)
 			out.SetDestinationLabels(task.Labels)
 			out.SetDestinationHostIp(task.HostIP)
 			out.SetDestinationPodIp(task.ContainerIP)
@@ -169,7 +173,7 @@ func (h *handler) GenerateMesosAttributes(ctx context.Context, inst *mtmpl.Insta
 
 	if inst.SourceUid != "" && inst.SourceUid != "unknown" {
 		if task, found := h.mesosCache.PodTask(inst.SourceUid, 0); found {
-			h.env.Logger().Debugf("task %v ", task)
+			h.env.Logger().Debugf("Source task %v ", task)
 			out.SetSourceLabels(task.Labels)
 			out.SetSourceHostIp(task.HostIP)
 			out.SetSourcePodName(task.PodName)
