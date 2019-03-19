@@ -88,8 +88,7 @@ func NewController(options ControllerOptions) (*Controller, error) {
 		return nil, err
 	}
 
-	// Register for events
-
+	// Subscribe for Marathon's events
 	depInfoChan, err := client.AddEventsListener(marathon.EventIDDeploymentInfo)
 	if err != nil {
 		return nil, err
