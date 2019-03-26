@@ -21,6 +21,7 @@ ADD envoy_policy_mesos.yaml.tmpl /etc/istio/proxy/envoy_policy_mesos.yaml.tmpl
 ADD envoy_telemetry.yaml.tmpl /etc/istio/proxy/envoy_telemetry.yaml.tmpl
 ADD envoy_telemetry_mesos.yaml.tmpl /etc/istio/proxy/envoy_telemetry_mesos.yaml.tmpl
 ADD istio-iptables.sh /usr/local/bin/istio-iptables.sh
+ADD start.sh /usr/local/bin/start.sh
 
 COPY envoy_bootstrap_v2.json /var/lib/istio/envoy/envoy_bootstrap_tmpl.json
 
@@ -30,4 +31,4 @@ RUN useradd -m --uid 1337 istio-proxy && \
     chown -R istio-proxy /var/lib/istio
 
 # The pilot-agent will bootstrap Envoy.
-ENTRYPOINT ["/usr/local/bin/pilot-agent"]
+ENTRYPOINT ["/usr/local/bin/start.sh"]

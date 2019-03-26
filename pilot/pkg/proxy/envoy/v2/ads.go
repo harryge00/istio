@@ -35,6 +35,7 @@ import (
 
 	"istio.io/istio/pilot/pkg/model"
 	istiolog "istio.io/istio/pkg/log"
+	"net"
 )
 
 var (
@@ -59,6 +60,12 @@ var (
 	PushTimeout = 5 * time.Second
 
 	allowConcurrentPush = false
+
+	// hostIP is the ip string of local host's IP
+	hostIP = ""
+
+	// gateway IP address
+	gatewayIP = ""
 )
 
 var (
@@ -181,6 +188,57 @@ func init() {
 	// Setting the env variable to any non-empty value will result in 0.8
 	// behaviour, default is to cancel old pushes when possible and lock.
 	allowConcurrentPush = os.Getenv("PILOT_ALLOW_CONCURRENT") != ""
+
+	// Set hostIP and gatewayIP for pruning EDS
+	hostIP = os.Getenv("HOST")
+	var err error
+	gatewayIP, err = getGatewayIP()
+	if err != nil {
+		adsLog.Warnf("cannot get gatewayIP %v %v: %v", hostIP, gatewayIP, err)
+	}
+	adsLog.Infof("gatewayIP: %v hostIP: %v", gatewayIP, hostIP)
+}
+
+func getGatewayIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			var mask net.IPMask
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+				mask = v.Mask
+			case *net.IPAddr:
+				ip = v.IP
+				mask = ip.DefaultMask()
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			gatewayIP := ip.Mask(mask)
+			if len(gatewayIP) < 4 {
+				continue // not an ipv4 address
+			}
+			// Masked IP + 1 = gatewayIP
+			gatewayIP[3]++
+			return gatewayIP.String(), nil
+		}
+	}
+	return "", errors.New("No valid interfaces")
 }
 
 // DiscoveryStream is a common interface for EDS and ADS. It also has a
@@ -297,6 +355,12 @@ func newXdsConnection(peerAddr string, stream DiscoveryStream) *XdsConnection {
 	}
 	// To fix the problem of communication in the same host using mesos-bridge,
 	// we have to switch containerIP/hostIP based on the connection's IP
+	// The switch is based on whether connection comes from the same host
+	if strings.HasPrefix(peerAddr, gatewayIP) {
+		con.PeerIP = hostIP
+		adsLog.Debugf("Assign peerIP: %v", con.PeerIP)
+		return con
+	}
 	if splitIP := strings.Split(peerAddr, ":"); len(splitIP) == 2 {
 		con.PeerIP = splitIP[0]
 		adsLog.Debugf("Assign peerIP: %v", con.PeerIP)

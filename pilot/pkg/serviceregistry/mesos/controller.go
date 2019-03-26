@@ -88,8 +88,7 @@ func NewController(options ControllerOptions) (*Controller, error) {
 		return nil, err
 	}
 
-	// Register for events
-
+	// Subscribe for Marathon's events
 	depInfoChan, err := client.AddEventsListener(marathon.EventIDDeploymentInfo)
 	if err != nil {
 		return nil, err
@@ -121,21 +120,15 @@ func NewController(options ControllerOptions) (*Controller, error) {
 func (c *Controller) initPodmap() error {
 	c.Lock()
 	defer c.Unlock()
-	pods, err := c.client.Pods()
+	pods, err := c.client.PodStatuses()
 	if err != nil {
 		return err
 	}
 	for _, pod := range pods {
-		podStatus, err := c.client.PodStatus(pod.ID)
-		if err != nil {
-			log.Errorf("Failed to get pod %v status: %v", pod.ID, err)
-			continue
-		}
-		podInfo := getPodInfo(podStatus)
+		podInfo := getPodInfo(pod)
 		if podInfo == nil {
 			continue
 		}
-
 		log.Infof("ID: %v, podInfo %v", pod.ID, podInfo)
 		c.podMap[pod.ID] = podInfo
 	}

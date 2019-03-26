@@ -66,7 +66,7 @@ type TaskInfo struct {
 }
 
 func newCacheController(client marathon.Marathon, refreshDuration time.Duration, env adapter.Env) (cacheController, error) {
-	// Register for events
+	// Subscribe to Marathon's events
 	depInfoChan, err := client.AddEventsListener(marathon.EventIDDeploymentInfo)
 	if err != nil {
 		return nil, err

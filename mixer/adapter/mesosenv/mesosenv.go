@@ -117,6 +117,10 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 			config.HTTPBasicAuthUser = paramsProto.HttpBasicAuthUser
 			config.HTTPBasicPassword = paramsProto.HttpBasicAuthPassword
 		}
+		if !strings.HasPrefix(config.URL, "http") {
+			env.Logger().Errorf("marathon address does not specify http protocol. Use http://")
+			config.URL = "http://" + config.URL
+		}
 		env.Logger().Infof("Creating a client, Marathon Config: %s", config)
 
 		client, err := marathon.NewClient(config)
@@ -153,39 +157,40 @@ func keyFromUID(uid string) (podKey string, taskKey string) {
 
 func (h *handler) GenerateMesosAttributes(ctx context.Context, inst *mtmpl.Instance) (*mtmpl.Output, error) {
 	out := mtmpl.NewOutput()
-	h.env.Logger().Debugf("GeneratemesosAttributes %v ", inst)
+
 	if inst.DestinationUid != "" && inst.DestinationUid != "unknown" {
-		if task, found := h.mesosCache.PodTask(inst.DestinationUid, int(inst.DestinationPort)); found {
-			h.env.Logger().Debugf("task %v ", task)
-			out.SetDestinationLabels(task.Labels)
-			out.SetDestinationHostIp(task.HostIP)
-			out.SetDestinationPodIp(task.ContainerIP)
-			out.SetDestinationContainerName(task.ContainerName)
-			out.SetDestinationPodName(task.PodName)
-			//} else {
-			//	h.env.Logger().Warningf("Destination Pod doesn't exists! Inst: %v", inst)
+		if task, found := h.findTask(inst.DestinationUid, inst.DestinationPort); found {
+			h.fillDestinationAttrs(task, inst.DestinationPort, out, h.params)
 		}
 	}
 
 	if inst.SourceUid != "" && inst.SourceUid != "unknown" {
-		if task, found := h.mesosCache.PodTask(inst.SourceUid, 0); found {
-			h.env.Logger().Debugf("task %v ", task)
-			out.SetSourceLabels(task.Labels)
-			out.SetSourceHostIp(task.HostIP)
-			out.SetSourcePodName(task.PodName)
-			out.SetSourcePodIp(task.ContainerIP)
-			out.SetSourcePodName(task.ContainerName)
-
-			//} else {
-			//	h.env.Logger().Warningf("Source Pod doesn't exists! Inst: %v", inst)
+		if task, found := h.findTask(inst.SourceUid, 0); found {
+			h.fillSourceAttrs(task, out, h.params)
 		}
 	}
-	//sID := inst.SourceUid
-	//for
-	//dID := inst.DestinationUid
-	//h.env.Logger().Infof("out: %v", out)
 
 	return out, nil
+}
+
+func (h *handler) findTask(uid string, port int64) (*TaskInfo, bool) {
+	return h.mesosCache.PodTask(uid, int(port))
+}
+
+func (h *handler) fillDestinationAttrs(task *TaskInfo, port int64, o *mtmpl.Output, params *config.Params) {
+	o.SetDestinationLabels(task.Labels)
+	o.SetDestinationHostIp(task.HostIP)
+	o.SetDestinationPodIp(task.ContainerIP)
+	o.SetDestinationContainerName(task.ContainerName)
+	o.SetDestinationPodName(task.PodName)
+}
+
+func (h *handler) fillSourceAttrs(task *TaskInfo, o *mtmpl.Output, params *config.Params) {
+	o.SetSourceLabels(task.Labels)
+	o.SetSourceHostIp(task.HostIP)
+	o.SetSourcePodName(task.PodName)
+	o.SetSourcePodIp(task.ContainerIP)
+	o.SetSourcePodName(task.ContainerName)
 }
 
 func (h *handler) Close() error {
