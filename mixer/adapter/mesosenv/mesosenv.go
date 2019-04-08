@@ -162,12 +162,16 @@ func (h *handler) GenerateMesosAttributes(ctx context.Context, inst *mtmpl.Insta
 		if task, found := h.findTask(inst.DestinationUid, inst.DestinationPort); found {
 			h.fillDestinationAttrs(task, inst.DestinationPort, out, h.params)
 		}
+	} else {
+		h.env.Logger().Debugf("unknown uid: %v", inst)
 	}
 
 	if inst.SourceUid != "" && inst.SourceUid != "unknown" {
 		if task, found := h.findTask(inst.SourceUid, 0); found {
 			h.fillSourceAttrs(task, out, h.params)
 		}
+	} else {
+		h.env.Logger().Debugf("unknown uid: %v", inst)
 	}
 
 	return out, nil
@@ -183,6 +187,8 @@ func (h *handler) fillDestinationAttrs(task *TaskInfo, port int64, o *mtmpl.Outp
 	o.SetDestinationPodIp(task.ContainerIP)
 	o.SetDestinationContainerName(task.ContainerName)
 	o.SetDestinationPodName(task.PodName)
+	o.SetDestinationWorkloadNamespace("default")
+	o.SetDestinationNamespace("default")
 }
 
 func (h *handler) fillSourceAttrs(task *TaskInfo, o *mtmpl.Output, params *config.Params) {

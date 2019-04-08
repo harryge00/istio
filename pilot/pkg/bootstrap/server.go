@@ -169,6 +169,7 @@ type Server struct {
 	istioConfigStore model.IstioConfigStore
 	mux              *http.ServeMux
 	kubeRegistry     *kube.Controller
+	mesosRegistry     *mesos.Controller
 }
 
 func createInterface(kubeconfig string) (kubernetes.Interface, error) {
@@ -707,16 +708,17 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 
 func (s *Server) initMesosRegistry(serviceControllers *aggregate.Controller, args *PilotArgs) error {
 	log.Infof("Mesos Master address: %v", args.Service.Mesos.Master)
-	conctl, conerr := mesos.NewController(args.Service.Mesos)
+	mesosctl, conerr := mesos.NewController(args.Service.Mesos)
 	if conerr != nil {
 		return fmt.Errorf("failed to create Mesos controller: %v", conerr)
 	}
+	s.mesosRegistry = mesosctl
 	serviceControllers.AddRegistry(
 		aggregate.Registry{
 			Name:             serviceregistry.MesosRegistry,
-			ServiceDiscovery: conctl,
-			ServiceAccounts:  conctl,
-			Controller:       conctl,
+			ServiceDiscovery: mesosctl,
+			ServiceAccounts:  mesosctl,
+			Controller:       mesosctl,
 		})
 
 	return nil
@@ -802,6 +804,12 @@ func (s *Server) initDiscoveryService(args *PilotArgs) error {
 		s.kubeRegistry.ConfigUpdater = discovery
 		if directEDS {
 			s.kubeRegistry.EDSUpdater = s.EnvoyXdsServer
+		}
+	}
+
+	if s.mesosRegistry != nil {
+		if directEDS {
+			s.mesosRegistry.EDSUpdater = s.EnvoyXdsServer
 		}
 	}
 

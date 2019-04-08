@@ -154,7 +154,6 @@ func serviceEntry2Endpoint(UID string, family model.AddressFamily, address strin
 		}
 	}
 
-	//log.Infoa("EDS: endpoint ", ipAddr, ep.String())
 	return ep
 }
 

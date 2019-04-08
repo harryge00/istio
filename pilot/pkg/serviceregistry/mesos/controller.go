@@ -61,6 +61,9 @@ type Controller struct {
 	// podMap stores podName ==> podInfo
 	podMap map[string]*PodInfo
 
+	// XDSUpdater will push EDS changes to the ADS model.
+	EDSUpdater model.XDSUpdater
+
 	syncPeriod time.Duration
 
 	client           marathon.Marathon
@@ -298,7 +301,7 @@ func (c *Controller) getTaskInstanceByID(id string) *TaskInstance {
 func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) []*model.ServiceInstance {
 	out := make([]*model.ServiceInstance, 0)
 
-	for _, inst := range pod.InstanceMap {
+	for taskID, inst := range pod.InstanceMap {
 		service := model.Service{
 			Hostname: *hostName,
 			// TODO: use marathon-lb address
@@ -323,6 +326,7 @@ func getInstancesOfPod(hostName *model.Hostname, reqSvcPort int, pod *PodInfo) [
 							Protocol: hostPort.Protocol,
 							Port:     svcPort,
 						},
+						UID: fmt.Sprintf("kubernetes://%s", taskID),
 					},
 					//AvailabilityZone: "default",
 					Service: &service,

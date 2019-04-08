@@ -172,13 +172,15 @@ func (c *controllerImpl) PodTask(uid string, port int) (task *TaskInfo, exists b
 		// Not a valid taskID for mesos
 		return
 	}
+	// taskID example: reviews-v2.instance-c96bf99f-3f9e-11e9-9623-0242548ba8c5
 	taskID := strings.TrimPrefix(uid, kubePrefix)
 	parts := strings.Split(taskID, ".")
 	if len(parts) < 2 {
 		c.env.Logger().Warningf("Illegal UID: %v", uid)
 		return
 	}
-	podName := parts[len(parts)-2]
+	// taskID is like: groupName.podName.instanceID
+	podName := parts[len(parts) - 2]
 
 	c.RLock()
 	defer c.RUnlock()
@@ -202,6 +204,16 @@ func (c *controllerImpl) PodTask(uid string, port int) (task *TaskInfo, exists b
 		}
 	}
 	return
+}
+
+// TODO: use index instead of searching the whole map
+func (c *controllerImpl) PodTaskByIP(ip net.IP, port int) (task *TaskInfo, exists bool) {
+	for taskId, task := range c.taskMap {
+		if (task.HostIP.Equal(ip) || task.ContainerIP.Equal(ip)) &&
+			task.ContainerPortList{
+
+		}
+	}
 }
 
 func (c *controllerImpl) deleteTask(statusUpdate *marathon.EventStatusUpdate) {

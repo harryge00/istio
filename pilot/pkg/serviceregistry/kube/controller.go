@@ -835,7 +835,7 @@ func (c *Controller) updateEDS(ep *v1.Endpoints) {
 			labels := map[string]string(convertLabels(pod.ObjectMeta))
 
 			uid := fmt.Sprintf("kubernetes://%s.%s", pod.Name, pod.Namespace)
-
+			log.Infof("k8s uid: %s", uid)
 			// EDS and ServiceEntry use name for service port - ADS will need to
 			// map to numbers.
 			for _, port := range ss.Ports {
