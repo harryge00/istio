@@ -15,6 +15,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go.uber.org/multierr"
@@ -102,81 +104,26 @@ istioctl mesos-inject -f deployment.yaml -o deployment-injected.yaml --injectCon
 				}
 			}
 
-			//var writer io.Writer
-			//if outMesosFilename == "" {
-			//	writer = c.OutOrStdout()
-			//} else {
-			//	var out *os.File
-			//	if out, err = os.Create(outMesosFilename); err != nil {
-			//		return err
-			//	}
-			//	writer = out
-			//	defer func() {
-			//		if errClose := out.Close(); errClose != nil {
-			//			log.Errorf("Error: close file from %s, %s", outMesosFilename, errClose)
-			//
-			//			// don't overwrite the previous error
-			//			if err == nil {
-			//				err = errClose
-			//			}
-			//		}
-			//	}()
-			//}
+			var writer io.Writer
+			if outMesosFilename == "" {
+				writer = c.OutOrStdout()
+			} else {
+				var out *os.File
+				if out, err = os.Create(outMesosFilename); err != nil {
+					return err
+				}
+				writer = out
+				defer func() {
+					if errClose := out.Close(); errClose != nil {
+						log.Errorf("Error: close file from %s, %s", outMesosFilename, errClose)
 
-			//var meshConfig *meshconfig.MeshConfig
-			//if meshConfigFile != "" {
-			//	if meshConfig, err = cmd.ReadMeshConfig(meshConfigFile); err != nil {
-			//		return err
-			//	}
-			//} else {
-			//	if meshConfig, err = getMeshConfigFromConfigMap(kubeconfig); err != nil {
-			//		return err
-			//	}
-			//}
-			//
-			//var sidecarTemplate string
-			//if injectConfigFile != "" {
-			//	injectionConfig, err := ioutil.ReadFile(injectConfigFile) // nolint: vetshadow
-			//	if err != nil {
-			//		return err
-			//	}
-			//	var config inject.Config
-			//	if err := yaml.Unmarshal(injectionConfig, &config); err != nil {
-			//		return err
-			//	}
-			//	sidecarTemplate = config.Template
-			//} else {
-			//	if sidecarTemplate, err = getInjectConfigFromConfigMap(kubeconfig); err != nil {
-			//		return err
-			//	}
-			//}
-			//
-			//var valuesConfig string
-			//if valuesFile != "" {
-			//	valuesConfigBytes, err := ioutil.ReadFile(valuesFile) // nolint: vetshadow
-			//	if err != nil {
-			//		return err
-			//	}
-			//	valuesConfig = string(valuesConfigBytes)
-			//} else {
-			//	if valuesConfig, err = getValuesFromConfigMap(kubeconfig); err != nil {
-			//		return err
-			//	}
-			//}
-			//
-			//if emitTemplate {
-			//	config := inject.Config{
-			//		Policy:   inject.InjectionPolicyEnabled,
-			//		Template: sidecarTemplate,
-			//	}
-			//	out, err := yaml.Marshal(&config)
-			//	if err != nil {
-			//		return err
-			//	}
-			//	fmt.Println(string(out))
-			//	return nil
-			//}
-
+						// don't overwrite the previous error
+						if err == nil {
+							err = errClose
+						}
+					}
+				}()
+			}
 
 			var app marathon.Application
 			byteValues, err := ioutil.ReadAll(reader)
@@ -190,38 +137,84 @@ istioctl mesos-inject -f deployment.yaml -o deployment-injected.yaml --injectCon
 			// Prune "/groups/appA" to "appA"
 			lastSlashIndex := strings.LastIndex(app.ID, "/")
 
-			appName := app.ID[lastSlashIndex + 1:]
+			appName := app.ID[lastSlashIndex+1:]
 			pod := marathon.NewPod()
 
 			workLoadContainer := &marathon.PodContainer{
 				Name: appName,
-				Exec: &marathon.PodExec{
+				Resources: &marathon.Resources{
+					Cpus: app.CPUs,
+				},
+			}
+
+			if app.Container != nil {
+				if app.Container.Docker != nil {
+					workLoadContainer.Image = &marathon.PodContainerImage{
+						Kind: "DOCKER",
+						ID:   app.Container.Docker.Image,
+					}
+					if app.Container.Docker.ForcePullImage != nil {
+						workLoadContainer.Image.ForcePull = *app.Container.Docker.ForcePullImage
+					}
+				}
+
+				for _, port := range *app.Container.PortMappings {
+					ep := &marathon.PodEndpoint{
+						Name:          port.Name,
+						ContainerPort: port.ContainerPort,
+						HostPort:      port.HostPort,
+						Protocol:      []string{port.Protocol},
+					}
+					if port.Labels != nil {
+						ep.Labels = *port.Labels
+					}
+					workLoadContainer.Endpoints = append(workLoadContainer.Endpoints, ep)
+				}
+
+				for i, vol := range *app.Container.Volumes {
+					if vol.HostPath == "" && vol.Persistent == nil {
+						// Not a valid pod volume
+						continue
+					}
+					podVol := &marathon.PodVolume{
+						Name: fmt.Sprintf("volume-%d", i),
+					}
+					volMount := &marathon.PodVolumeMount{
+						Name: podVol.Name,
+					}
+					if vol.HostPath != "" {
+						podVol.Host = vol.HostPath
+						volMount.MountPath = vol.ContainerPath
+					} else if vol.Persistent != nil {
+						podVol.Persistent = vol.Persistent
+						volMount.MountPath = vol.ContainerPath
+					}
+					pod.AddVolume(podVol)
+					workLoadContainer.VolumeMounts = append(workLoadContainer.VolumeMounts, volMount)
+				}
+			}
+			if app.Cmd != nil {
+				workLoadContainer.Exec = &marathon.PodExec{
 					Command: marathon.PodCommand{
 						Shell: *app.Cmd,
 					},
-				},
-				Image: &marathon.PodContainerImage{
-					Kind:      "DOCKER",
-					ID:        app.Container.Docker.Image,
-					ForcePull: *app.Container.Docker.ForcePullImage,
-				},
-				Resources: &marathon.Resources{
-					Cpus: app.CPUs,
-					Mem:  *app.Mem,
-				},
-				Env: *app.Env,
+				}
 			}
 
-			for _, port := range *app.Container.PortMappings {
-				ep := &marathon.PodEndpoint{
-					Name: port.Name,
-					ContainerPort: port.ContainerPort,
-					HostPort: port.HostPort,
-					Labels: *port.Labels,
-					Protocol: []string{port.Protocol},
+			if app.Env != nil {
+				workLoadContainer.Env = *app.Env
+			}
 
-				}
-				workLoadContainer.Endpoints = append(workLoadContainer.Endpoints, ep)
+			if app.Mem != nil {
+				workLoadContainer.Resources.Mem = *app.Mem
+			}
+
+			if app.GPUs != nil {
+				workLoadContainer.Resources.Gpus = int32(*app.GPUs)
+			}
+
+			if app.Disk != nil {
+				workLoadContainer.Resources.Disk = *app.Disk
 			}
 
 			podHealthCheck, err := getPodHealthCheck(&app)
@@ -232,34 +225,14 @@ istioctl mesos-inject -f deployment.yaml -o deployment-injected.yaml --injectCon
 				workLoadContainer.HealthCheck = podHealthCheck
 			}
 
-			for i, vol := range *app.Container.Volumes {
-				if vol.HostPath == "" && vol.Persistent == nil {
-					// Not a valid pod volume
-					continue
-				}
-				podVol := &marathon.PodVolume{
-					Name: fmt.Sprintf("volume-%d", i),
-				}
-				volMount := &marathon.PodVolumeMount{
-					Name: podVol.Name,
-				}
-				if vol.HostPath != "" {
-					podVol.Host = vol.HostPath
-					volMount.MountPath = vol.ContainerPath
-				} else if vol.Persistent != nil {
-					podVol.Persistent = vol.Persistent
-					volMount.MountPath = vol.ContainerPath
-				}
-				pod.AddVolume(podVol)
-				workLoadContainer.VolumeMounts = append(workLoadContainer.VolumeMounts, volMount)
-			}
-
 			pod.ID = app.ID
-			pod.Labels = *app.Labels
+			if app.Labels != nil {
+				pod.Labels = *app.Labels
+			}
 			pod.AddNetwork(marathon.NewContainerPodNetwork("dcos"))
 			pod.Count(*app.Instances)
 			pod.AddContainer(workLoadContainer)
-			pod.AddContainer(createProxyContainer())
+			pod.AddContainer(createProxyContainer(app.ID))
 			podSchedulingPolicy := getPodSchedulingPolicy(&app)
 			if podSchedulingPolicy != nil {
 				pod.SetPodSchedulingPolicy(podSchedulingPolicy)
@@ -271,19 +244,24 @@ istioctl mesos-inject -f deployment.yaml -o deployment-injected.yaml --injectCon
 			if err != nil {
 				return err
 			}
-			log.Infof("%v", string(podBytes))
+			dst := &bytes.Buffer{}
+			if err := json.Indent(dst, podBytes, "", "  "); err != nil {
+				panic(err)
+			}
+
+			writer.Write(dst.Bytes())
 
 			return nil
 		},
 	}
 )
 
-func createProxyContainer(serviceName string) *marathon.PodContainer{
+func createProxyContainer(serviceName string) *marathon.PodContainer {
 	podContainer := marathon.PodContainer{
 		Name: "istio-proxy",
 		Image: &marathon.PodContainerImage{
-			Kind:      "DOCKER",
-			ID:        defaultProxyImage,
+			Kind: "DOCKER",
+			ID:   defaultProxyImage,
 		},
 		Resources: &marathon.Resources{
 			Cpus: 0.2,
@@ -315,9 +293,6 @@ func createProxyContainer(serviceName string) *marathon.PodContainer{
 		podContainer.Env["DISCOVERY_ADDRESSS"] = "pilot.istio.marathon.slave.mesos:31510"
 	}
 
-
-	podContainer.Env["SERVICES_DOMAIN"] = "marathon.slave.mesos"
-	podContainer.Env["SERVICES_DOMAIN"] = "marathon.slave.mesos"
 	return &podContainer
 }
 
@@ -344,7 +319,15 @@ func getPodHealthCheck(app *marathon.Application) (*marathon.PodHealthCheck, err
 	if app.HealthChecks == nil {
 		return nil, nil
 	}
-	podHealthCheck := &marathon.PodHealthCheck{}
+	podHealthCheck := marathon.PodHealthCheck{}
+
+	copyParams := func(phc *marathon.PodHealthCheck, check *marathon.HealthCheck) {
+		phc.GracePeriodSeconds = &check.GracePeriodSeconds
+		phc.IntervalSeconds = &check.IntervalSeconds
+		phc.TimeoutSeconds = &check.TimeoutSeconds
+		phc.MaxConsecutiveFailures = check.MaxConsecutiveFailures
+	}
+
 	for _, healthCheck := range *app.HealthChecks {
 		if healthCheck.Protocol == "COMMAND" {
 			podHealthCheck.SetExecHealthCheck(&marathon.CommandHealthCheck{
@@ -352,7 +335,9 @@ func getPodHealthCheck(app *marathon.Application) (*marathon.PodHealthCheck, err
 					Shell: healthCheck.Command.Value,
 				},
 			})
-			return podHealthCheck, nil
+			copyParams(&podHealthCheck, &healthCheck)
+
+			return &podHealthCheck, nil
 		} else if healthCheck.Protocol == "TCP" {
 			if *healthCheck.PortIndex >= len(*app.Container.PortMappings) {
 				return nil, fmt.Errorf("application's healthCheck PortIndex is illegal: %v", healthCheck)
@@ -361,18 +346,21 @@ func getPodHealthCheck(app *marathon.Application) (*marathon.PodHealthCheck, err
 			podHealthCheck.TCP = &marathon.TCPHealthCheck{
 				Endpoint: ep.Name,
 			}
-			return podHealthCheck, nil
-		} else if healthCheck.Protocol == "HTTP" ||  healthCheck.Protocol == "HTTPS" {
+
+			copyParams(&podHealthCheck, &healthCheck)
+			return &podHealthCheck, nil
+		} else if healthCheck.Protocol == "HTTP" || healthCheck.Protocol == "HTTPS" {
 			if *healthCheck.PortIndex >= len(*app.Container.PortMappings) {
 				return nil, fmt.Errorf("application's healthCheck PortIndex is illegal: %v", healthCheck)
 			}
 			ep := (*app.Container.PortMappings)[*healthCheck.PortIndex]
 			podHealthCheck.HTTP = &marathon.HTTPHealthCheck{
 				Endpoint: ep.Name,
-				Scheme: healthCheck.Protocol,
-				Path: *healthCheck.Path,
+				Scheme:   healthCheck.Protocol,
+				Path:     *healthCheck.Path,
 			}
-			return podHealthCheck, nil
+			copyParams(&podHealthCheck, &healthCheck)
+			return &podHealthCheck, nil
 		}
 	}
 	return nil, nil
@@ -390,13 +378,10 @@ func validateMesosFlags() error {
 	return err
 }
 
-
 var (
-	inMesosFilename          string
-	outMesosFilename         string
-	
+	inMesosFilename  string
+	outMesosFilename string
 )
-
 
 func init() {
 	rootCmd.AddCommand(injectMesosCmd)
@@ -413,9 +398,9 @@ func init() {
 	_ = injectMesosCmd.PersistentFlags().MarkHidden("emitTemplate")
 
 	injectMesosCmd.PersistentFlags().StringVarP(&inMesosFilename, "filename", "f",
-		"", "Input Kubernetes resource filename")
+		"", "Input Marathon application filename")
 	injectMesosCmd.PersistentFlags().StringVarP(&outMesosFilename, "output", "o",
-		"", "Modified output Kubernetes resource filename")
+		"", "Modified output Marathon pod filename")
 
 	injectMesosCmd.PersistentFlags().StringVar(&meshConfigMapName, "meshConfigMapName", defaultMeshConfigMapName,
 		fmt.Sprintf("ConfigMap name for Istio mesh configuration, key should be %q", configMapKey))
